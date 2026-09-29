@@ -35,7 +35,7 @@ export const StatusHud: React.FC<StatusHudProps> = ({
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState(player.hunterTitle);
 
-  // Timer de Hiperfoco TDA embutido
+  // Timer de Hiperfoco TDA
   const [timerMinutes, setTimerMinutes] = useState(20);
   const [secondsRemaining, setSecondsRemaining] = useState(20 * 60);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
@@ -103,8 +103,6 @@ export const StatusHud: React.FC<StatusHudProps> = ({
   const pendingMental = mentalQuests.filter((q) => !q.isCompleted).length;
   const pendingEspiritual = espiritualQuests.filter((q) => !q.isCompleted).length;
 
-  const totalPending = pendingFisico + pendingMental + pendingEspiritual;
-
   const formatTimer = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
     const secs = totalSeconds % 60;
@@ -112,15 +110,15 @@ export const StatusHud: React.FC<StatusHudProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
       
-      {/* Moldura Principal de Status */}
-      <div className="system-window rounded-2xl p-5 sm:p-8 space-y-6 relative">
+      {/* Moldura Principal de Status com Cantoneiras Holográficas */}
+      <div className="system-window rounded-2xl p-4 sm:p-7 space-y-5 relative">
         
         {/* Top Header: Tag, Título, Nível, Botão Relatório e Botão Renovar Dia */}
-        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between pb-4 border-b border-emerald-500/20 gap-4">
+        <div className="space-y-4 pb-2">
           <div>
-            <span className="text-[11px] sm:text-xs font-mono font-bold tracking-wider text-emerald-400 block mb-1">
+            <span className="text-[11px] sm:text-xs font-mono font-bold tracking-wider text-emerald-400 block mb-1 uppercase">
               [ SISTEMA DE EVOLUÇÃO: TRÍADE BALANCEADA ]
             </span>
             <h1 className="text-2xl sm:text-3xl font-black font-display tracking-widest text-slate-100 uppercase">
@@ -128,27 +126,28 @@ export const StatusHud: React.FC<StatusHudProps> = ({
             </h1>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 sm:gap-4 self-stretch lg:self-auto justify-between lg:justify-end">
-            <div className="text-left sm:text-right pr-2">
-              <span className="text-[10px] sm:text-[11px] font-mono font-bold text-slate-400 tracking-wider block uppercase">
-                Sequência de Caça
+          {/* Linha de Nível Atual e Botões de Ação */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <span className="text-[10px] sm:text-[11px] font-mono font-bold text-slate-400 tracking-widest block uppercase">
+                NÍVEL ATUAL
               </span>
-              <span className="text-base sm:text-lg font-black text-amber-400 font-mono tracking-tight tabular-nums flex items-center gap-1">
-                <span>🔥</span> {player.streakDays} {player.streakDays === 1 ? 'Dia Ativo' : 'Dias Ativos'}
-              </span>
+              <div className="text-2xl sm:text-3xl font-black text-emerald-400 neon-text-green font-display tracking-wide">
+                LV. {player.level}
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
               <button
                 onClick={() => {
                   soundEffects.playSystemBeep();
                   onOpenCycleReport();
                 }}
-                className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold font-mono uppercase tracking-wider text-emerald-300 bg-emerald-950/60 border border-emerald-400/50 hover:bg-emerald-500/20 rounded-lg transition-all cursor-pointer shadow-[0_0_12px_rgba(34,197,94,0.2)]"
+                className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-bold text-xs font-mono uppercase tracking-wider shadow-[0_0_20px_rgba(34,197,94,0.45)] border border-emerald-300/80 transition-all cursor-pointer"
                 title="Ver Relatório Diário de Conquistas"
               >
-                <Share2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Relatório</span>
+                <Share2 className="w-4 h-4 stroke-[2.5]" />
+                <span>Relatório do Ciclo (Print)</span>
               </button>
 
               <button
@@ -156,221 +155,161 @@ export const StatusHud: React.FC<StatusHudProps> = ({
                   soundEffects.playLevelUp();
                   onRenewDay();
                 }}
-                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold font-mono uppercase tracking-wider text-slate-950 bg-gradient-to-r from-emerald-400 via-green-400 to-emerald-300 hover:from-emerald-300 hover:to-green-200 rounded-lg transition-all cursor-pointer shadow-[0_0_15px_rgba(34,197,94,0.4)]"
+                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-950/60 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-950/40 hover:border-emerald-400 font-bold text-xs font-mono uppercase tracking-wider transition-all cursor-pointer"
                 title="Renovar ciclo diário e resetar missões para um novo dia"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
-                <span>Novo Dia</span>
+                <span>Renovar Dia</span>
               </button>
             </div>
           </div>
         </div>
 
-        {/* Linha 1: Cartão de Identidade do Caçador */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-center bg-slate-950/60 p-4 sm:p-5 rounded-xl border border-slate-800/80">
-          
-          {/* Identificação */}
-          <div className="md:col-span-2 space-y-2">
-            <div className="flex items-center gap-2">
+        {/* Card 1: JOGADOR */}
+        <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-4 sm:p-5 relative space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] sm:text-[11px] font-mono font-bold tracking-widest text-slate-400 uppercase">
+              JOGADOR
+            </span>
+            <div className="flex items-center gap-1">
               <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-500/40 uppercase tracking-widest">
                 RANK {player.hunterRank}
               </span>
-              <span className="text-xs text-slate-400 font-mono">
-                [ID: {player.userId.slice(0, 8)}]
-              </span>
-            </div>
-
-            {/* Nome Editável */}
-            <div className="flex items-center gap-2">
-              {isEditingName ? (
-                <div className="flex items-center gap-2 w-full max-w-sm">
-                  <input
-                    type="text"
-                    value={nameInput}
-                    onChange={(e) => setNameInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSaveName()}
-                    className="bg-slate-900 border border-emerald-500 text-slate-100 px-2.5 py-1 text-base rounded outline-none w-full"
-                    autoFocus
-                  />
-                  <button
-                    onClick={handleSaveName}
-                    className="p-1.5 bg-emerald-500 text-slate-950 rounded hover:bg-emerald-400 text-xs font-bold"
-                  >
-                    Salvar
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 group">
-                  <h2 className="text-lg sm:text-xl font-bold text-slate-100 font-display tracking-wide">
-                    {player.name}
-                  </h2>
-                  <button
-                    onClick={() => {
-                      setNameInput(player.name);
-                      setIsEditingName(true);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-emerald-400 p-1 transition-opacity cursor-pointer"
-                    title="Editar nome"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Título Editável */}
-            <div className="flex items-center gap-2">
-              {isEditingTitle ? (
-                <div className="flex items-center gap-2 w-full max-w-md">
-                  <input
-                    type="text"
-                    value={titleInput}
-                    onChange={(e) => setTitleInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSaveTitle()}
-                    className="bg-slate-900 border border-emerald-500 text-slate-100 px-2.5 py-1 text-xs rounded outline-none w-full"
-                    autoFocus
-                  />
-                  <button
-                    onClick={handleSaveTitle}
-                    className="p-1 bg-emerald-500 text-slate-950 rounded hover:bg-emerald-400 text-xs font-bold"
-                  >
-                    Salvar
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 group">
-                  <p className="text-xs text-emerald-400/90 font-medium">
-                    « {player.hunterTitle} »
-                  </p>
-                  <button
-                    onClick={() => {
-                      setTitleInput(player.hunterTitle);
-                      setIsEditingTitle(true);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-emerald-400 p-0.5 transition-opacity cursor-pointer"
-                    title="Editar título"
-                  >
-                    <Pencil className="w-3 h-3" />
-                  </button>
-                </div>
-              )}
             </div>
           </div>
 
-          {/* Nível e Barra de XP */}
-          <div className="space-y-2 bg-slate-900/80 p-3.5 rounded-lg border border-slate-800">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-mono font-bold text-slate-300">
-                NÍVEL <span className="text-emerald-400 text-sm font-black">{player.level}</span>
-              </span>
-              <span className="text-xs font-mono text-emerald-400 font-bold tabular-nums">
-                {player.currentXp} / {player.nextLevelXp} XP ({xpPercent}%)
-              </span>
-            </div>
-            
-            <div className="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800 relative">
-              <div
-                className="h-full bg-gradient-to-r from-emerald-500 via-green-400 to-emerald-300 rounded-full transition-all duration-500 shadow-[0_0_10px_rgba(34,197,94,0.7)]"
-                style={{ width: `${xpPercent}%` }}
-              />
-            </div>
+          {/* Nome Editável */}
+          <div className="flex items-center justify-between gap-2">
+            {isEditingName ? (
+              <div className="flex items-center gap-2 w-full max-w-sm">
+                <input
+                  type="text"
+                  value={nameInput}
+                  onChange={(e) => setNameInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSaveName()}
+                  className="bg-slate-900 border border-emerald-500 text-slate-100 px-2.5 py-1 text-base rounded outline-none w-full"
+                  autoFocus
+                />
+                <button
+                  onClick={handleSaveName}
+                  className="p-1.5 bg-emerald-500 text-slate-950 rounded hover:bg-emerald-400 text-xs font-bold cursor-pointer"
+                >
+                  Salvar
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 group">
+                <h2 className="text-lg sm:text-xl font-bold text-slate-100 font-display tracking-wide">
+                  {player.name}
+                </h2>
+                <button
+                  onClick={() => {
+                    setNameInput(player.name);
+                    setIsEditingName(true);
+                  }}
+                  className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-emerald-400 p-1 transition-opacity cursor-pointer"
+                  title="Editar nome"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
           </div>
 
+          {/* Título / Subtítulo Editável */}
+          <div className="flex items-center gap-2">
+            {isEditingTitle ? (
+              <div className="flex items-center gap-2 w-full max-w-md">
+                <input
+                  type="text"
+                  value={titleInput}
+                  onChange={(e) => setTitleInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSaveTitle()}
+                  className="bg-slate-900 border border-emerald-500 text-slate-100 px-2.5 py-1 text-xs rounded outline-none w-full"
+                  autoFocus
+                />
+                <button
+                  onClick={handleSaveTitle}
+                  className="p-1 bg-emerald-500 text-slate-950 rounded hover:bg-emerald-400 text-xs font-bold cursor-pointer"
+                >
+                  Salvar
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 group">
+                <p className="text-xs sm:text-sm font-semibold text-emerald-400 neon-text-green">
+                  {player.hunterTitle}
+                </p>
+                <button
+                  onClick={() => {
+                    setTitleInput(player.hunterTitle);
+                    setIsEditingTitle(true);
+                  }}
+                  className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-emerald-400 p-0.5 transition-opacity cursor-pointer"
+                  title="Editar título"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Linha 2: Barra de Status dos 3 Pilares com Contadores e Timer de Foco */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* Card 2: PROGRESSO DE EXPERIÊNCIA (XP) */}
+        <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-4 sm:p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] sm:text-[11px] font-mono font-bold tracking-widest text-slate-400 uppercase">
+              PROGRESSO DE EXPERIÊNCIA (XP)
+            </span>
+            <span className="text-xs font-mono font-bold text-slate-200 tabular-nums">
+              {player.currentXp} / {player.nextLevelXp} XP
+            </span>
+          </div>
           
-          {/* Pilar Físico */}
-          <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-xl p-3.5 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-emerald-950/80 border border-emerald-500/50 flex items-center justify-center shrink-0">
-                <Shield className="w-5 h-5 text-emerald-400" />
-              </div>
-              <div>
-                <span className="text-[10px] font-mono text-slate-400 uppercase block tracking-wider">Pilar</span>
-                <span className="text-xs font-black text-emerald-300 uppercase tracking-wider">FÍSICO</span>
-              </div>
-            </div>
-            <div className="text-right">
-              <span className="text-lg font-black text-emerald-400 font-mono tabular-nums">{player.stats.fisico}</span>
-              <span className="text-[10px] text-slate-400 block font-mono">pts</span>
-            </div>
+          <div className="w-full h-3.5 bg-slate-950/90 rounded-full border border-slate-800 p-0.5 overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-emerald-400 via-green-400 to-teal-300 rounded-full transition-all duration-500 shadow-[0_0_12px_rgba(34,197,94,0.8)]"
+              style={{ width: `${xpPercent}%` }}
+            />
           </div>
+        </div>
 
-          {/* Pilar Mental */}
-          <div className="bg-teal-950/30 border border-teal-500/30 rounded-xl p-3.5 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-teal-950/80 border border-teal-500/50 flex items-center justify-center shrink-0">
-                <Zap className="w-5 h-5 text-teal-400" />
-              </div>
-              <div>
-                <span className="text-[10px] font-mono text-slate-400 uppercase block tracking-wider">Pilar</span>
-                <span className="text-xs font-black text-teal-300 uppercase tracking-wider">MENTAL</span>
-              </div>
-            </div>
-            <div className="text-right">
-              <span className="text-lg font-black text-teal-400 font-mono tabular-nums">{player.stats.mental}</span>
-              <span className="text-[10px] text-slate-400 block font-mono">pts</span>
-            </div>
-          </div>
-
-          {/* Pilar Espiritual */}
-          <div className="bg-amber-950/30 border border-amber-500/30 rounded-xl p-3.5 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-amber-950/80 border border-amber-500/50 flex items-center justify-center shrink-0">
-                <Sparkles className="w-5 h-5 text-amber-400" />
-              </div>
-              <div>
-                <span className="text-[10px] font-mono text-slate-400 uppercase block tracking-wider">Pilar</span>
-                <span className="text-xs font-black text-amber-300 uppercase tracking-wider">ESPIRITUAL</span>
-              </div>
-            </div>
-            <div className="text-right">
-              <span className="text-lg font-black text-amber-400 font-mono tabular-nums">{player.stats.espiritual}</span>
-              <span className="text-[10px] text-slate-400 block font-mono">pts</span>
-            </div>
-          </div>
-
-          {/* Timer de Hiperfoco TDA Anti-Inércia */}
-          <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3 flex items-center justify-between gap-2">
+        {/* Card 3: Timer de Hiperfoco (Anti-Cegueira Temporal) */}
+        <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-4 sm:p-5 space-y-3">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-emerald-400" />
-              <div>
-                <span className="text-[10px] font-mono text-slate-400 block uppercase">Foco TDA</span>
-                <span className="text-sm font-black font-mono text-emerald-300 tabular-nums">
-                  {formatTimer(secondsRemaining)}
-                </span>
-              </div>
+              <span className="text-xs sm:text-sm font-semibold text-slate-200">
+                Timer de Hiperfoco (Anti-Cegueira Temporal):
+              </span>
             </div>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => {
-                  soundEffects.playSystemBeep();
-                  setIsTimerRunning(!isTimerRunning);
-                }}
-                className={`px-2.5 py-1 text-[11px] font-bold rounded cursor-pointer transition-all ${
-                  isTimerRunning
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                    : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30'
-                }`}
-              >
-                {isTimerRunning ? 'Pausar' : 'Iniciar'}
-              </button>
-              <button
-                onClick={() => {
-                  soundEffects.playSystemBeep();
-                  setIsTimerRunning(false);
-                  setSecondsRemaining(timerMinutes * 60);
-                }}
-                className="p-1 text-slate-400 hover:text-slate-200 cursor-pointer"
-                title="Reiniciar timer"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-              </button>
-            </div>
+            <span className="text-base sm:text-lg font-black font-mono text-emerald-400 tabular-nums">
+              {formatTimer(secondsRemaining)}
+            </span>
           </div>
 
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button
+              onClick={() => {
+                soundEffects.playSystemBeep();
+                setIsTimerRunning(!isTimerRunning);
+              }}
+              className="px-4 py-2 rounded-lg border border-emerald-500/50 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/40 text-xs font-mono font-bold uppercase tracking-wider transition-all cursor-pointer shadow-[0_0_10px_rgba(34,197,94,0.2)]"
+            >
+              {isTimerRunning ? 'PAUSAR' : `INICIAR ${timerMinutes}M`}
+            </button>
+            <button
+              onClick={() => {
+                soundEffects.playSystemBeep();
+                setIsTimerRunning(false);
+                setSecondsRemaining(timerMinutes * 60);
+              }}
+              className="p-2 rounded-lg border border-slate-800 bg-slate-900/60 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+              title="Reiniciar Timer"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Aviso de missão travada no ciclo diário */}
@@ -389,15 +328,15 @@ export const StatusHud: React.FC<StatusHudProps> = ({
           </div>
         )}
 
-        {/* Linha 3: AS TRÊS COLUNAS DA TRÍADE COM AS MISSÕES DIÁRIAS (Físico, Mental, Espiritual) */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 sm:gap-6 items-start">
+        {/* Linha dos 3 Pilares da Tríade */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 sm:gap-6 items-start pt-2">
           
-          {/* COLUNA 1: FÍSICO */}
+          {/* PILAR 1: FÍSICO */}
           <div className="system-window rounded-xl p-4 sm:p-5 space-y-4">
             
             <div className="flex items-center justify-between pb-3 border-b border-slate-800/90 gap-2">
               <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-emerald-950/60 border border-emerald-500/40 flex items-center justify-center shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-emerald-950/60 border border-emerald-500/40 flex items-center justify-center shrink-0">
                   <Shield className="w-4 h-4 text-emerald-400 fill-emerald-400/20" />
                 </div>
                 <div>
@@ -409,10 +348,10 @@ export const StatusHud: React.FC<StatusHudProps> = ({
                       className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border tabular-nums uppercase tracking-wider ${
                         pendingFisico === 0
                           ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/60 shadow-[0_0_8px_rgba(34,197,94,0.3)]'
-                          : 'bg-amber-950/60 text-amber-300 border-amber-500/50'
+                          : 'bg-amber-950/80 text-amber-300 border-amber-500/60'
                       }`}
                     >
-                      {pendingFisico === 0 ? '✓ 0 Faltando' : `${pendingFisico} Pendente${pendingFisico > 1 ? 's' : ''}`}
+                      {pendingFisico === 0 ? '✓ 0 PENDENTES' : `${pendingFisico} PENDENTE${pendingFisico > 1 ? 'S' : ''}`}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-400">Corpo e Vitalidade</p>
@@ -421,10 +360,10 @@ export const StatusHud: React.FC<StatusHudProps> = ({
 
               <button
                 onClick={() => onOpenNewQuestModal('fisico')}
-                className="p-1.5 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 hover:border-emerald-400 transition-all cursor-pointer shrink-0"
+                className="p-1.5 rounded-lg bg-slate-900/60 border border-slate-700 text-emerald-400 hover:border-emerald-400 hover:bg-emerald-950/40 transition-all cursor-pointer shrink-0"
                 title="Adicionar meta ao Pilar Físico"
               >
-                <Plus className="w-3.5 h-3.5" />
+                <Plus className="w-4 h-4" />
               </button>
             </div>
 
@@ -540,12 +479,12 @@ export const StatusHud: React.FC<StatusHudProps> = ({
 
           </div>
 
-          {/* COLUNA 2: MENTAL */}
+          {/* PILAR 2: MENTAL */}
           <div className="system-window rounded-xl p-4 sm:p-5 space-y-4">
             
             <div className="flex items-center justify-between pb-3 border-b border-slate-800/90 gap-2">
               <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-teal-950/60 border border-teal-500/40 flex items-center justify-center shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-teal-950/60 border border-teal-500/40 flex items-center justify-center shrink-0">
                   <Zap className="w-4 h-4 text-teal-400 fill-teal-400/20" />
                 </div>
                 <div>
@@ -557,10 +496,10 @@ export const StatusHud: React.FC<StatusHudProps> = ({
                       className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border tabular-nums uppercase tracking-wider ${
                         pendingMental === 0
                           ? 'bg-teal-950/80 text-teal-300 border-teal-500/60 shadow-[0_0_8px_rgba(45,212,191,0.3)]'
-                          : 'bg-amber-950/60 text-amber-300 border-amber-500/50'
+                          : 'bg-amber-950/80 text-amber-300 border-amber-500/60'
                       }`}
                     >
-                      {pendingMental === 0 ? '✓ 0 Faltando' : `${pendingMental} Pendente${pendingMental > 1 ? 's' : ''}`}
+                      {pendingMental === 0 ? '✓ 0 PENDENTES' : `${pendingMental} PENDENTE${pendingMental > 1 ? 's' : ''}`}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-400">Código e Carreira</p>
@@ -569,10 +508,10 @@ export const StatusHud: React.FC<StatusHudProps> = ({
 
               <button
                 onClick={() => onOpenNewQuestModal('mental')}
-                className="p-1.5 rounded-lg bg-teal-950/40 border border-teal-500/30 text-teal-300 hover:bg-teal-500/20 hover:border-teal-400 transition-all cursor-pointer shrink-0"
+                className="p-1.5 rounded-lg bg-slate-900/60 border border-slate-700 text-teal-400 hover:border-teal-400 hover:bg-teal-950/40 transition-all cursor-pointer shrink-0"
                 title="Adicionar meta ao Pilar Mental"
               >
-                <Plus className="w-3.5 h-3.5" />
+                <Plus className="w-4 h-4" />
               </button>
             </div>
 
@@ -688,12 +627,12 @@ export const StatusHud: React.FC<StatusHudProps> = ({
 
           </div>
 
-          {/* COLUNA 3: ESPIRITUAL */}
+          {/* PILAR 3: ESPIRITUAL */}
           <div className="system-window rounded-xl p-4 sm:p-5 space-y-4">
             
             <div className="flex items-center justify-between pb-3 border-b border-slate-800/90 gap-2">
               <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-amber-950/60 border border-amber-500/40 flex items-center justify-center shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-amber-950/60 border border-amber-500/40 flex items-center justify-center shrink-0">
                   <Sparkles className="w-4 h-4 text-amber-400 fill-amber-400/20" />
                 </div>
                 <div>
@@ -705,10 +644,10 @@ export const StatusHud: React.FC<StatusHudProps> = ({
                       className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border tabular-nums uppercase tracking-wider ${
                         pendingEspiritual === 0
                           ? 'bg-amber-950/80 text-amber-300 border-amber-500/60 shadow-[0_0_8px_rgba(245,158,11,0.3)]'
-                          : 'bg-amber-950/60 text-amber-300 border-amber-500/50'
+                          : 'bg-amber-950/80 text-amber-300 border-amber-500/60'
                       }`}
                     >
-                      {pendingEspiritual === 0 ? '✓ 0 Faltando' : `${pendingEspiritual} Pendente${pendingEspiritual > 1 ? 's' : ''}`}
+                      {pendingEspiritual === 0 ? '✓ 0 PENDENTES' : `${pendingEspiritual} PENDENTE${pendingEspiritual > 1 ? 's' : ''}`}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-400">Comunhão e Paz</p>
@@ -717,10 +656,10 @@ export const StatusHud: React.FC<StatusHudProps> = ({
 
               <button
                 onClick={() => onOpenNewQuestModal('espiritual')}
-                className="p-1.5 rounded-lg bg-amber-950/40 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 hover:border-amber-400 transition-all cursor-pointer shrink-0"
+                className="p-1.5 rounded-lg bg-slate-900/60 border border-slate-700 text-amber-400 hover:border-amber-400 hover:bg-amber-950/40 transition-all cursor-pointer shrink-0"
                 title="Adicionar meta ao Pilar Espiritual"
               >
-                <Plus className="w-3.5 h-3.5" />
+                <Plus className="w-4 h-4" />
               </button>
             </div>
 
@@ -836,13 +775,6 @@ export const StatusHud: React.FC<StatusHudProps> = ({
 
           </div>
 
-        </div>
-
-        {/* Linha 4: Citação de Encerramento Inspiradora */}
-        <div className="pt-4 border-t border-slate-800/70 text-center">
-          <p className="text-xs text-slate-400 italic font-sans leading-relaxed tracking-wide">
-            “Desenvolva o corpo com disciplina, a mente com sabedoria e o espírito em comunhão com Deus.”
-          </p>
         </div>
 
       </div>

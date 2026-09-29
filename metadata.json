@@ -1,0 +1,6 @@
+{
+  "name": "System: Solo Leveling",
+  "description": "Painel de RPG gamificado para gestão de hábitos diários e produtividade nos 3 pilares (Físico, Mental e Espiritual), otimizado para TDA.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

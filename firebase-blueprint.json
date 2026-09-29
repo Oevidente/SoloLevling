@@ -1,0 +1,118 @@
+{
+  "entities": {
+    "PlayerProfile": {
+      "title": "PlayerProfile",
+      "description": "Hunter player profile and Solo Leveling stats",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID"
+        },
+        "name": {
+          "type": "string",
+          "description": "Hunter alias name"
+        },
+        "hunterRank": {
+          "type": "string",
+          "description": "Rank from E to Monarca"
+        },
+        "level": {
+          "type": "number",
+          "description": "Current player level"
+        },
+        "currentXp": {
+          "type": "number",
+          "description": "Current level XP"
+        },
+        "nextLevelXp": {
+          "type": "number",
+          "description": "XP required for next level"
+        },
+        "unassignedPoints": {
+          "type": "number",
+          "description": "Available stat points"
+        },
+        "streakDays": {
+          "type": "number",
+          "description": "Consecutive days completed"
+        },
+        "redemptionActive": {
+          "type": "boolean",
+          "description": "Emergency recovery active"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update"
+        }
+      },
+      "required": ["userId", "level", "currentXp", "nextLevelXp"]
+    },
+    "Quest": {
+      "title": "Quest",
+      "description": "Daily quest belonging to one of the 3 pillars",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique quest ID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID"
+        },
+        "title": {
+          "type": "string",
+          "description": "Quest title"
+        },
+        "description": {
+          "type": "string",
+          "description": "Quest description"
+        },
+        "category": {
+          "type": "string",
+          "description": "One of: fisico, mental, espiritual"
+        },
+        "xpReward": {
+          "type": "number",
+          "description": "XP granted upon completion"
+        },
+        "statReward": {
+          "type": "string",
+          "description": "Associated stat: forca, agilidade, vitalidade, sentidos, inteligencia"
+        },
+        "isCompleted": {
+          "type": "boolean",
+          "description": "Completion state"
+        },
+        "microStepTip": {
+          "type": "string",
+          "description": "Anti-inertia ADHD quick start tip"
+        },
+        "estimatedMinutes": {
+          "type": "number",
+          "description": "Estimated duration in minutes"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last modified timestamp"
+        }
+      },
+      "required": ["id", "userId", "title", "category", "xpReward", "isCompleted"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "PlayerProfile",
+      "description": "Player profile and RPG stats"
+    },
+    "/users/{userId}/quests/{questId}": {
+      "schema": "Quest",
+      "description": "Hunter daily quests"
+    }
+  }
+}

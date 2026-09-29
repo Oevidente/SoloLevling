@@ -1,0 +1,152 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #020804;
+    color: #e2e8f0;
+  }
+
+  /* Custom sleek scrollbar for system windows */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: rgba(2, 8, 4, 0.9);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(34, 197, 94, 0.35);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(34, 197, 94, 0.7);
+  }
+}
+
+/* System HUD specific classes with Neon Green tone */
+.system-window {
+  background: linear-gradient(135deg, rgba(4, 20, 10, 0.88) 0%, rgba(2, 12, 6, 0.96) 100%);
+  border: 1px solid rgba(34, 197, 94, 0.38);
+  box-shadow: 0 0 25px rgba(34, 197, 94, 0.1), inset 0 0 15px rgba(34, 197, 94, 0.04);
+  position: relative;
+}
+
+.system-window::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-top: 2px solid #22c55e;
+  border-left: 2px solid #22c55e;
+}
+
+.system-window::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 8px;
+  height: 8px;
+  border-bottom: 2px solid #22c55e;
+  border-right: 2px solid #22c55e;
+}
+
+.system-window-danger {
+  background: linear-gradient(135deg, rgba(28, 8, 10, 0.92) 0%, rgba(18, 4, 6, 0.97) 100%);
+  border: 1px solid rgba(239, 68, 68, 0.55);
+  box-shadow: 0 0 30px rgba(239, 68, 68, 0.18), inset 0 0 20px rgba(239, 68, 68, 0.05);
+  position: relative;
+}
+
+.system-window-danger::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-top: 2px solid #ef4444;
+  border-left: 2px solid #ef4444;
+}
+
+.system-window-danger::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 8px;
+  height: 8px;
+  border-bottom: 2px solid #ef4444;
+  border-right: 2px solid #ef4444;
+}
+
+.system-window-gold {
+  background: linear-gradient(135deg, rgba(25, 20, 6, 0.92) 0%, rgba(16, 12, 4, 0.97) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.55);
+  box-shadow: 0 0 30px rgba(245, 158, 11, 0.18), inset 0 0 20px rgba(245, 158, 11, 0.05);
+  position: relative;
+}
+
+.system-window-gold::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-top: 2px solid #f59e0b;
+  border-left: 2px solid #f59e0b;
+}
+
+.system-window-gold::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 8px;
+  height: 8px;
+  border-bottom: 2px solid #f59e0b;
+  border-right: 2px solid #f59e0b;
+}
+
+.neon-text-green {
+  text-shadow: 0 0 10px rgba(34, 197, 94, 0.7), 0 0 20px rgba(34, 197, 94, 0.3);
+}
+
+.neon-text-gold {
+  text-shadow: 0 0 12px rgba(245, 158, 11, 0.7), 0 0 24px rgba(245, 158, 11, 0.3);
+}
+
+.neon-text-red {
+  text-shadow: 0 0 12px rgba(239, 68, 68, 0.7), 0 0 24px rgba(239, 68, 68, 0.3);
+}
+
+/* Subtle holographic grid background */
+.solo-leveling-bg {
+  background-color: #020804;
+  background-image: 
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(34, 197, 94, 0.12), transparent),
+    linear-gradient(rgba(34, 197, 94, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34, 197, 94, 0.035) 1px, transparent 1px);
+  background-size: 100% 100%, 36px 36px, 36px 36px;
+}
+
+.scanline-effect {
+  position: relative;
+  overflow: hidden;
+}
+
+.scanline-effect::after {
+  content: " ";
+  display: block;
+  position: absolute;
+  top: 0; left: 0; bottom: 0; right: 0;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.2) 50%), linear-gradient(90deg, rgba(34, 197, 94, 0.015), rgba(0, 0, 0, 0.01), rgba(34, 197, 94, 0.015));
+  z-index: 20;
+  background-size: 100% 2px, 3px 100%;
+  pointer-events: none;
+  opacity: 0.6;
+}

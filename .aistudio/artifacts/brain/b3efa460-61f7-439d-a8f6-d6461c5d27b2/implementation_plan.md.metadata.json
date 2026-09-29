@@ -1,6 +1,6 @@
 {
-  "summary":  "Plano de correção para os dois erros apresentados no GitHub: resolução do alerta de vazamento de chave do Google/Firebase no Secret Scanning e correção do erro de sintaxe YAML na linha 1 do GitHub Actions workflow (deploy.yml).",
-  "updatedAt":  "2026-09-29T02:41:14.369745945Z",
+  "summary":  "Plano de implementação para sincronização automática entre dispositivos via Firebase com Login do Google, resolução inteligente de conflitos e otimização de cotas do banco de dados.",
+  "updatedAt":  "2026-09-29T03:58:24.927291262Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

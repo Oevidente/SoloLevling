@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User } from 'firebase/auth';
-import { PlayerProfile, Quest, PillarType, InventoryItem, HunterRank } from './types/hunter';
+import { PlayerProfile, Quest, PillarType, InventoryItem, HunterRank, ExpRewardEvent } from './types/hunter';
 import { INITIAL_DEFAULT_QUESTS } from './data/defaultQuests';
 import { soundEffects } from './services/soundEffects';
 import {
@@ -25,6 +25,7 @@ import { NewQuestModal } from './components/NewQuestModal';
 import { CycleReportModal } from './components/CycleReportModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { CloudBackupModal } from './components/CloudBackupModal';
+import { ExpRewardPopup } from './components/ExpRewardPopup';
 
 const DEFAULT_PLAYER: PlayerProfile = {
   userId: 'local_hunter',
@@ -87,6 +88,10 @@ export default function App() {
   const [isCycleReportOpen, setIsCycleReportOpen] = useState(false);
   const [isCloudBackupOpen, setIsCloudBackupOpen] = useState(false);
   const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
+
+  // Recompensa de EXP pop-up & Glow de missão
+  const [activeExpReward, setActiveExpReward] = useState<ExpRewardEvent | null>(null);
+  const [recentlyCompletedQuestId, setRecentlyCompletedQuestId] = useState<string | null>(null);
 
   // Áudio
   const [isMuted, setIsMuted] = useState(() => soundEffects.getMuted());
@@ -192,6 +197,12 @@ export default function App() {
     setQuests(updatedQuests);
     soundEffects.playQuestComplete();
 
+    // Dispara animação de brilho no card de missão recém-concluída
+    setRecentlyCompletedQuestId(questId);
+    setTimeout(() => {
+      setRecentlyCompletedQuestId((prev) => (prev === questId ? null : prev));
+    }, 2500);
+
     let newXp = player.currentXp + quest.xpReward;
     let newLevel = player.level;
     let newNextXp = player.nextLevelXp;
@@ -200,6 +211,18 @@ export default function App() {
 
     const newStats = { ...player.stats };
     newStats[quest.category] += 1;
+
+    // Dispara o Pop-up de EXP (fecha sozinho em 5 segundos)
+    setActiveExpReward({
+      id: `${quest.id}_${Date.now()}`,
+      questTitle: quest.title,
+      category: quest.category,
+      xpEarned: quest.xpReward,
+      statRewardName: quest.category === 'fisico' ? 'Físico' : quest.category === 'mental' ? 'Mental' : 'Espiritual',
+      currentXp: newXp,
+      nextLevelXp: newNextXp,
+      timestamp: Date.now(),
+    });
 
     while (newXp >= newNextXp) {
       leveledUp = true;
@@ -343,6 +366,19 @@ export default function App() {
       }
       return item;
     });
+
+    if (bonusXp > 0) {
+      setActiveExpReward({
+        id: `item_${itemId}_${Date.now()}`,
+        questTitle: `Item: ${targetItem.name}`,
+        category: 'mental',
+        xpEarned: bonusXp,
+        statRewardName: 'Recompensa do Baú',
+        currentXp: newXp,
+        nextLevelXp: newNextXp,
+        timestamp: Date.now(),
+      });
+    }
 
     const updatedPlayer: PlayerProfile = {
       ...player,
@@ -502,6 +538,7 @@ export default function App() {
           <StatusHud
             player={player}
             quests={quests}
+            recentlyCompletedQuestId={recentlyCompletedQuestId}
             onToggleQuest={handleToggleQuest}
             onDeleteQuest={handleDeleteQuest}
             onEditQuest={handleEditQuest}
@@ -599,6 +636,12 @@ export default function App() {
         isLoggedIn={Boolean(currentUser)}
         userEmail={currentUser?.email}
         authError={authErrorMessage}
+      />
+
+      {/* Pop-up de Recompensa de EXP (Auto-fecha após 5s) */}
+      <ExpRewardPopup
+        reward={activeExpReward}
+        onClose={() => setActiveExpReward(null)}
       />
 
     </div>

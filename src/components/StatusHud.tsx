@@ -6,6 +6,7 @@ import { Shield, Zap, Sparkles, Check, RefreshCw, Plus, Trash2, Clock, RotateCcw
 interface StatusHudProps {
   player: PlayerProfile;
   quests: Quest[];
+  recentlyCompletedQuestId?: string | null;
   onToggleQuest: (questId: string) => void;
   onDeleteQuest: (questId: string) => void;
   onEditQuest: (quest: Quest) => void;
@@ -20,6 +21,7 @@ interface StatusHudProps {
 export const StatusHud: React.FC<StatusHudProps> = ({
   player,
   quests,
+  recentlyCompletedQuestId,
   onToggleQuest,
   onDeleteQuest,
   onEditQuest,
@@ -380,33 +382,42 @@ export const StatusHud: React.FC<StatusHudProps> = ({
                   </button>
                 </div>
               ) : (
-                fisicoQuests.map((quest) => (
-                  <div
-                    key={quest.id}
-                    className={`rounded-xl p-3.5 border transition-all space-y-2 group relative ${
-                      quest.isCompleted
-                        ? 'border-emerald-500/30 bg-emerald-950/20'
-                        : 'border-slate-800/90 bg-slate-900/60 hover:border-emerald-500/40'
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      {/* Checkbox */}
-                      <button
-                        onClick={() => handleQuestClick(quest)}
-                        className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-all cursor-pointer ${
-                          quest.isCompleted
-                            ? 'bg-emerald-500/25 border-emerald-400 text-emerald-400 shadow-[0_0_10px_rgba(34,197,94,0.4)]'
-                            : 'border-slate-700 bg-slate-900/80 hover:border-emerald-400 text-transparent'
-                        }`}
-                        title={
-                          quest.isCompleted
-                            ? 'Missão concluída neste ciclo diário (bloqueada contra repetição)'
-                            : 'Marcar missão como cumprida'
-                        }
-                        aria-label={`Alternar ${quest.title}`}
-                      >
-                        <Check className={`w-3.5 h-3.5 stroke-[3] ${quest.isCompleted ? 'block' : 'hidden'}`} />
-                      </button>
+                fisicoQuests.map((quest) => {
+                  const isJustCompleted = recentlyCompletedQuestId === quest.id;
+                  return (
+                    <div
+                      key={quest.id}
+                      className={`rounded-xl p-3.5 border transition-all space-y-2 group relative overflow-hidden ${
+                        isJustCompleted
+                          ? 'quest-just-completed quest-completed-glow border-emerald-400 shadow-[0_0_25px_rgba(34,197,94,0.6)]'
+                          : quest.isCompleted
+                          ? 'quest-completed-glow border-emerald-500/50 shadow-[0_0_15px_rgba(34,197,94,0.25)]'
+                          : 'border-slate-800/90 bg-slate-900/60 hover:border-emerald-500/40 hover:shadow-[0_0_10px_rgba(34,197,94,0.15)]'
+                      }`}
+                    >
+                      {/* Aura beam on top edge for completed quests */}
+                      {quest.isCompleted && (
+                        <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent animate-pulse" />
+                      )}
+
+                      <div className="flex items-start gap-3">
+                        {/* Checkbox */}
+                        <button
+                          onClick={() => handleQuestClick(quest)}
+                          className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-all cursor-pointer ${
+                            quest.isCompleted
+                              ? 'bg-emerald-500 border-emerald-300 text-slate-950 shadow-[0_0_12px_rgba(34,197,94,0.7)]'
+                              : 'border-slate-700 bg-slate-900/80 hover:border-emerald-400 text-transparent'
+                          }`}
+                          title={
+                            quest.isCompleted
+                              ? 'Missão concluída neste ciclo diário (bloqueada contra repetição)'
+                              : 'Marcar missão como cumprida'
+                          }
+                          aria-label={`Alternar ${quest.title}`}
+                        >
+                          <Check className={`w-3.5 h-3.5 stroke-[3] ${quest.isCompleted ? 'block' : 'hidden'}`} />
+                        </button>
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -473,7 +484,8 @@ export const StatusHud: React.FC<StatusHudProps> = ({
                       </span>
                     </div>
                   </div>
-                ))
+                );
+              })
               )}
             </div>
 
@@ -528,100 +540,110 @@ export const StatusHud: React.FC<StatusHudProps> = ({
                   </button>
                 </div>
               ) : (
-                mentalQuests.map((quest) => (
-                  <div
-                    key={quest.id}
-                    className={`rounded-xl p-3.5 border transition-all space-y-2 group relative ${
-                      quest.isCompleted
-                        ? 'border-teal-500/30 bg-teal-950/20'
-                        : 'border-slate-800/90 bg-slate-900/60 hover:border-teal-500/40'
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      {/* Checkbox */}
-                      <button
-                        onClick={() => handleQuestClick(quest)}
-                        className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-all cursor-pointer ${
-                          quest.isCompleted
-                            ? 'bg-teal-500/25 border-teal-400 text-teal-400 shadow-[0_0_10px_rgba(45,212,191,0.4)]'
-                            : 'border-slate-700 bg-slate-900/80 hover:border-teal-400 text-transparent'
-                        }`}
-                        title={
-                          quest.isCompleted
-                            ? 'Missão concluída neste ciclo diário (bloqueada contra repetição)'
-                            : 'Marcar missão como cumprida'
-                        }
-                        aria-label={`Alternar ${quest.title}`}
-                      >
-                        <Check className={`w-3.5 h-3.5 stroke-[3] ${quest.isCompleted ? 'block' : 'hidden'}`} />
-                      </button>
+                mentalQuests.map((quest) => {
+                  const isJustCompleted = recentlyCompletedQuestId === quest.id;
+                  return (
+                    <div
+                      key={quest.id}
+                      className={`rounded-xl p-3.5 border transition-all space-y-2 group relative overflow-hidden ${
+                        isJustCompleted
+                          ? 'quest-just-completed quest-completed-glow border-teal-400 shadow-[0_0_25px_rgba(45,212,191,0.6)]'
+                          : quest.isCompleted
+                          ? 'quest-completed-glow border-teal-500/50 shadow-[0_0_15px_rgba(45,212,191,0.25)]'
+                          : 'border-slate-800/90 bg-slate-900/60 hover:border-teal-500/40 hover:shadow-[0_0_10px_rgba(45,212,191,0.15)]'
+                      }`}
+                    >
+                      {/* Aura beam on top edge for completed quests */}
+                      {quest.isCompleted && (
+                        <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-teal-400 to-transparent animate-pulse" />
+                      )}
 
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <h4
-                            onClick={() => handleQuestClick(quest)}
-                            className={`text-xs sm:text-sm font-semibold cursor-pointer transition-colors leading-snug ${
-                              quest.isCompleted
-                                ? 'text-teal-300/90 font-medium'
-                                : 'text-slate-100 hover:text-teal-300'
-                            }`}
-                          >
-                            {quest.title}
-                          </h4>
+                      <div className="flex items-start gap-3">
+                        {/* Checkbox */}
+                        <button
+                          onClick={() => handleQuestClick(quest)}
+                          className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-all cursor-pointer ${
+                            quest.isCompleted
+                              ? 'bg-teal-400 border-teal-300 text-slate-950 shadow-[0_0_12px_rgba(45,212,191,0.7)]'
+                              : 'border-slate-700 bg-slate-900/80 hover:border-teal-400 text-transparent'
+                          }`}
+                          title={
+                            quest.isCompleted
+                              ? 'Missão concluída neste ciclo diário (bloqueada contra repetição)'
+                              : 'Marcar missão como cumprida'
+                          }
+                          aria-label={`Alternar ${quest.title}`}
+                        >
+                          <Check className={`w-3.5 h-3.5 stroke-[3] ${quest.isCompleted ? 'block' : 'hidden'}`} />
+                        </button>
 
-                          {quest.isCompleted && (
-                            <span
-                              className="text-[9px] font-mono text-teal-400 bg-teal-950/80 px-1.5 py-0.2 rounded border border-teal-500/40 flex items-center gap-0.5 shrink-0"
-                              title="Missão cumprida e travada para este ciclo"
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h4
+                              onClick={() => handleQuestClick(quest)}
+                              className={`text-xs sm:text-sm font-semibold cursor-pointer transition-colors leading-snug ${
+                                quest.isCompleted
+                                  ? 'text-teal-300/90 font-medium'
+                                  : 'text-slate-100 hover:text-teal-300'
+                              }`}
                             >
-                              <Lock className="w-2.5 h-2.5" />
-                              <span>Ciclo OK</span>
-                            </span>
+                              {quest.title}
+                            </h4>
+
+                            {quest.isCompleted && (
+                              <span
+                                className="text-[9px] font-mono text-teal-400 bg-teal-950/80 px-1.5 py-0.2 rounded border border-teal-500/40 flex items-center gap-0.5 shrink-0"
+                                title="Missão cumprida e travada para este ciclo"
+                              >
+                                <Lock className="w-2.5 h-2.5" />
+                                <span>Ciclo OK</span>
+                              </span>
+                            )}
+                          </div>
+
+                          {quest.description && (
+                            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                              {quest.description}
+                            </p>
                           )}
                         </div>
 
-                        {quest.description && (
-                          <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
-                            {quest.description}
-                          </p>
-                        )}
+                        {/* Botões de Ação: Editar e Excluir */}
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          <button
+                            onClick={() => {
+                              soundEffects.playSystemBeep();
+                              onEditQuest(quest);
+                            }}
+                            className="p-1.5 rounded text-slate-400 hover:text-teal-300 hover:bg-slate-800 transition-all cursor-pointer"
+                            title="Editar missão"
+                            aria-label={`Editar ${quest.title}`}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              soundEffects.playSystemBeep();
+                              setQuestToDelete(quest);
+                            }}
+                            className="p-1.5 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-950/30 transition-all cursor-pointer"
+                            title="Excluir missão"
+                            aria-label={`Excluir ${quest.title}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
 
-                      {/* Botões de Ação: Editar e Excluir */}
-                      <div className="flex items-center gap-0.5 shrink-0">
-                        <button
-                          onClick={() => {
-                            soundEffects.playSystemBeep();
-                            onEditQuest(quest);
-                          }}
-                          className="p-1.5 rounded text-slate-400 hover:text-teal-300 hover:bg-slate-800 transition-all cursor-pointer"
-                          title="Editar missão"
-                          aria-label={`Editar ${quest.title}`}
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            soundEffects.playSystemBeep();
-                            setQuestToDelete(quest);
-                          }}
-                          className="p-1.5 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-950/30 transition-all cursor-pointer"
-                          title="Excluir missão"
-                          aria-label={`Excluir ${quest.title}`}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                      <div className="flex items-center justify-end pt-1">
+                        <span className="text-[11px] font-mono font-bold text-teal-400 bg-teal-950/40 px-2 py-0.5 rounded border border-teal-500/30 tabular-nums">
+                          +{quest.xpReward} XP
+                        </span>
                       </div>
                     </div>
-
-                    <div className="flex items-center justify-end pt-1">
-                      <span className="text-[11px] font-mono font-bold text-teal-400 bg-teal-950/40 px-2 py-0.5 rounded border border-teal-500/30 tabular-nums">
-                        +{quest.xpReward} XP
-                      </span>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
 
@@ -676,33 +698,42 @@ export const StatusHud: React.FC<StatusHudProps> = ({
                   </button>
                 </div>
               ) : (
-                espiritualQuests.map((quest) => (
-                  <div
-                    key={quest.id}
-                    className={`rounded-xl p-3.5 border transition-all space-y-2 group relative ${
-                      quest.isCompleted
-                        ? 'border-amber-500/30 bg-amber-950/20'
-                        : 'border-slate-800/90 bg-slate-900/60 hover:border-amber-500/40'
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      {/* Checkbox */}
-                      <button
-                        onClick={() => handleQuestClick(quest)}
-                        className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-all cursor-pointer ${
-                          quest.isCompleted
-                            ? 'bg-amber-500/25 border-amber-400 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.4)]'
-                            : 'border-slate-700 bg-slate-900/80 hover:border-amber-400 text-transparent'
-                        }`}
-                        title={
-                          quest.isCompleted
-                            ? 'Missão concluída neste ciclo diário (bloqueada contra repetição)'
-                            : 'Marcar missão como cumprida'
-                        }
-                        aria-label={`Alternar ${quest.title}`}
-                      >
-                        <Check className={`w-3.5 h-3.5 stroke-[3] ${quest.isCompleted ? 'block' : 'hidden'}`} />
-                      </button>
+                espiritualQuests.map((quest) => {
+                  const isJustCompleted = recentlyCompletedQuestId === quest.id;
+                  return (
+                    <div
+                      key={quest.id}
+                      className={`rounded-xl p-3.5 border transition-all space-y-2 group relative overflow-hidden ${
+                        isJustCompleted
+                          ? 'quest-just-completed quest-completed-glow border-amber-400 shadow-[0_0_25px_rgba(245,158,11,0.6)]'
+                          : quest.isCompleted
+                          ? 'quest-completed-glow border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.25)]'
+                          : 'border-slate-800/90 bg-slate-900/60 hover:border-amber-500/40 hover:shadow-[0_0_10px_rgba(245,158,11,0.15)]'
+                      }`}
+                    >
+                      {/* Aura beam on top edge for completed quests */}
+                      {quest.isCompleted && (
+                        <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-amber-400 to-transparent animate-pulse" />
+                      )}
+
+                      <div className="flex items-start gap-3">
+                        {/* Checkbox */}
+                        <button
+                          onClick={() => handleQuestClick(quest)}
+                          className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-all cursor-pointer ${
+                            quest.isCompleted
+                              ? 'bg-amber-400 border-amber-300 text-slate-950 shadow-[0_0_12px_rgba(245,158,11,0.7)]'
+                              : 'border-slate-700 bg-slate-900/80 hover:border-amber-400 text-transparent'
+                          }`}
+                          title={
+                            quest.isCompleted
+                              ? 'Missão concluída neste ciclo diário (bloqueada contra repetição)'
+                              : 'Marcar missão como cumprida'
+                          }
+                          aria-label={`Alternar ${quest.title}`}
+                        >
+                          <Check className={`w-3.5 h-3.5 stroke-[3] ${quest.isCompleted ? 'block' : 'hidden'}`} />
+                        </button>
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -769,7 +800,8 @@ export const StatusHud: React.FC<StatusHudProps> = ({
                       </span>
                     </div>
                   </div>
-                ))
+                );
+              })
               )}
             </div>
 

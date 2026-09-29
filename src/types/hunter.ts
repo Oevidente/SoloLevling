@@ -54,3 +54,15 @@ export interface Quest {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface ExpRewardEvent {
+  id: string;
+  questTitle: string;
+  category: PillarType;
+  xpEarned: number;
+  statRewardName: string;
+  currentXp: number;
+  nextLevelXp: number;
+  timestamp: number;
+}
+

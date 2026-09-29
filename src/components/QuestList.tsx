@@ -5,6 +5,7 @@ import { Check, Plus, Trash2, Clock, Flame, Brain, Compass, Lightbulb, Play, Pau
 
 interface QuestListProps {
   quests: Quest[];
+  recentlyCompletedQuestId?: string | null;
   onToggleQuest: (questId: string) => void;
   onDeleteQuest: (questId: string) => void;
   onEditQuest?: (quest: Quest) => void;
@@ -13,6 +14,7 @@ interface QuestListProps {
 
 export const QuestList: React.FC<QuestListProps> = ({
   quests,
+  recentlyCompletedQuestId,
   onToggleQuest,
   onDeleteQuest,
   onEditQuest,
@@ -269,15 +271,21 @@ export const QuestList: React.FC<QuestListProps> = ({
         ) : (
           filteredQuests.map((quest) => {
             const isTipOpen = expandedTipId === quest.id;
+            const isJustCompleted = recentlyCompletedQuestId === quest.id;
             return (
               <div
                 key={quest.id}
-                className={`system-window rounded-lg p-4 transition-all ${
-                  quest.isCompleted
-                    ? 'border-emerald-500/35 bg-emerald-950/20 opacity-80'
+                className={`system-window rounded-xl p-4 transition-all relative overflow-hidden ${
+                  isJustCompleted
+                    ? 'quest-just-completed quest-completed-glow border-emerald-400 shadow-[0_0_25px_rgba(34,197,94,0.6)]'
+                    : quest.isCompleted
+                    ? 'quest-completed-glow border-emerald-500/50 shadow-[0_0_15px_rgba(34,197,94,0.25)]'
                     : 'hover:border-emerald-400/60'
                 }`}
               >
+                {quest.isCompleted && (
+                  <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent animate-pulse" />
+                )}
                 <div className="flex items-start justify-between gap-3">
                   
                   {/* Checkbox Holográfica */}
@@ -285,7 +293,7 @@ export const QuestList: React.FC<QuestListProps> = ({
                     onClick={() => onToggleQuest(quest.id)}
                     className={`w-6 h-6 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-all cursor-pointer ${
                       quest.isCompleted
-                        ? 'bg-emerald-500 border-emerald-300 text-slate-950 shadow-[0_0_12px_rgba(34,197,94,0.6)]'
+                        ? 'bg-emerald-500 border-emerald-300 text-slate-950 shadow-[0_0_12px_rgba(34,197,94,0.7)]'
                         : 'border-slate-600 bg-slate-900/80 hover:border-emerald-400 text-transparent'
                     }`}
                     aria-label={`Completar ${quest.title}`}

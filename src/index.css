@@ -124,6 +124,10 @@
   text-shadow: 0 0 12px rgba(239, 68, 68, 0.7), 0 0 24px rgba(239, 68, 68, 0.3);
 }
 
+.neon-text-cyan {
+  text-shadow: 0 0 12px rgba(45, 212, 191, 0.7), 0 0 24px rgba(45, 212, 191, 0.3);
+}
+
 /* Subtle holographic grid background */
 .solo-leveling-bg {
   background-color: #020804;
@@ -149,4 +153,169 @@
   background-size: 100% 2px, 3px 100%;
   pointer-events: none;
   opacity: 0.6;
+}
+
+/* ==========================================================================
+   CUSTOM ANIMATIONS FOR QUEST GLOW, EXP POPUP & LEVEL UP
+   ========================================================================== */
+
+/* Brilho pulsante e borda luminosa para cards de missão concluída */
+@keyframes questCompletedPulse {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(34, 197, 94, 0.35), inset 0 0 12px rgba(34, 197, 94, 0.1);
+    border-color: rgba(34, 197, 94, 0.65);
+  }
+  50% {
+    box-shadow: 0 0 28px rgba(34, 197, 94, 0.7), inset 0 0 20px rgba(34, 197, 94, 0.25);
+    border-color: rgba(74, 222, 128, 1);
+  }
+}
+
+.quest-completed-glow {
+  animation: questCompletedPulse 3s ease-in-out infinite;
+  background: linear-gradient(135deg, rgba(5, 46, 22, 0.45) 0%, rgba(2, 20, 10, 0.6) 100%) !important;
+}
+
+/* Impacto explosivo e flash no exato momento da conclusão */
+@keyframes questFlashBurst {
+  0% {
+    transform: scale(0.98);
+    box-shadow: 0 0 45px rgba(34, 197, 94, 0.95), inset 0 0 30px rgba(255, 255, 255, 0.4);
+    border-color: #ffffff;
+  }
+  40% {
+    transform: scale(1.02);
+    box-shadow: 0 0 35px rgba(34, 197, 94, 0.8), inset 0 0 20px rgba(34, 197, 94, 0.3);
+    border-color: #4ade80;
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 20px rgba(34, 197, 94, 0.45);
+    border-color: rgba(34, 197, 94, 0.7);
+  }
+}
+
+.quest-just-completed {
+  animation: questFlashBurst 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Raio rotativo de luz nos cards de missão (Border Beam) */
+@keyframes borderSweep {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.glow-border-beam {
+  position: relative;
+}
+
+.glow-border-beam::before {
+  content: '';
+  position: absolute;
+  inset: -1.5px;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: linear-gradient(90deg, #22c55e, #10b981, #38bdf8, #a855f7, #22c55e);
+  background-size: 300% 300%;
+  animation: borderSweep 4s linear infinite;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Barra de contagem regressiva de 5 segundos do Pop-up de EXP */
+@keyframes countdown5s {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+.animate-countdown-5s {
+  animation: countdown5s 5s linear forwards;
+}
+
+/* Efeito de raio giratório / God Rays no Level Up */
+@keyframes spinRays {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-rays {
+  animation: spinRays 25s linear infinite;
+}
+
+/* Partículas subindo no Level Up */
+@keyframes floatUpParticle {
+  0% {
+    transform: translateY(100%) scale(0.6);
+    opacity: 0;
+  }
+  30% {
+    opacity: 0.9;
+  }
+  80% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(-120%) scale(1.2);
+    opacity: 0;
+  }
+}
+
+.particle-rise {
+  animation: floatUpParticle 3s ease-out infinite;
+}
+
+/* Onda de choque expansiva / Shockwave no Level Up */
+@keyframes shockwaveRing {
+  0% {
+    transform: scale(0.3);
+    opacity: 1;
+    border-width: 4px;
+  }
+  70% {
+    opacity: 0.6;
+    border-width: 2px;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+    border-width: 1px;
+  }
+}
+
+.animate-shockwave {
+  animation: shockwaveRing 2s cubic-bezier(0.1, 0.8, 0.3, 1) infinite;
+}
+
+/* Pulso holográfico de texto dourado do Level Up */
+@keyframes levelUpBadgePulse {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 15px rgba(245, 158, 11, 0.7));
+  }
+  50% {
+    transform: scale(1.06);
+    filter: drop-shadow(0 0 35px rgba(251, 191, 36, 1));
+  }
+}
+
+.animate-levelup-badge {
+  animation: levelUpBadgePulse 2s ease-in-out infinite;
 }

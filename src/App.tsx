@@ -22,6 +22,7 @@ import {
   logoutUser, 
   fetchCloudSave, 
   saveCloudSave, 
+  isOfflineError,
   GameSaveData 
 } from './services/firebase';
 
@@ -118,65 +119,100 @@ export default function App() {
 
   // Listener de Autenticação Firebase & Detecção Multi-Dispositivo
   useEffect(() => {
-    const unsubscribe = subscribeToAuth(async (user) => {
-      setCurrentUser(user);
-      if (user) {
-        try {
-          setSyncStatus('saving');
-          const cloudSave = await fetchCloudSave(user.uid);
-          
-          if (cloudSave && cloudSave.player) {
-            // Existe save na nuvem: verificar se difere dos dados locais
-            const localRaw = localStorage.getItem('solo_hunter_profile');
-            const localParsed = localRaw ? JSON.parse(localRaw) : DEFAULT_PLAYER;
-            
-            // Compara para saber se vale a pena perguntar ou se já é idêntico
-            const isLocalDefault = localParsed.level === 1 && localParsed.currentXp === 0 && localParsed.name === 'Sung Jin-Woo';
-            const isDifferent = 
-              cloudSave.player.level !== localParsed.level ||
-              cloudSave.player.currentXp !== localParsed.currentXp ||
-              cloudSave.player.name !== localParsed.name ||
-              (cloudSave.quests && cloudSave.quests.length !== quests.length);
+    const performInitialSync = async (user: User) => {
+      try {
+        if (!navigator.onLine) {
+          setSyncStatus('offline');
+          return;
+        }
 
-            if (isLocalDefault && !isDifferent) {
-              // Se o local for padrão e nuvem também, apenas baixa silenciosamente
-              setPlayer({ ...cloudSave.player, userId: user.uid });
-              if (cloudSave.quests && cloudSave.quests.length > 0) {
-                setQuests(cloudSave.quests);
-              }
-              setSyncStatus('synced');
-            } else if (isDifferent || isInitialAuthCheck.current) {
-              // Pergunta ao usuário se deseja baixar da nuvem ou manter dados locais
-              setPendingCloudData(cloudSave);
-              setIsSyncConflictOpen(true);
-              setSyncStatus('synced');
-            } else {
-              setSyncStatus('synced');
+        setSyncStatus('saving');
+        const cloudSave = await fetchCloudSave(user.uid);
+        
+        if (cloudSave && cloudSave.player) {
+          const localRaw = localStorage.getItem('solo_hunter_profile');
+          const localParsed = localRaw ? JSON.parse(localRaw) : DEFAULT_PLAYER;
+          
+          const isLocalDefault = localParsed.level === 1 && localParsed.currentXp === 0 && localParsed.name === 'Sung Jin-Woo';
+          const isDifferent = 
+            cloudSave.player.level !== localParsed.level ||
+            cloudSave.player.currentXp !== localParsed.currentXp ||
+            cloudSave.player.name !== localParsed.name ||
+            (cloudSave.quests && cloudSave.quests.length !== quests.length);
+
+          if (isLocalDefault && !isDifferent) {
+            setPlayer({ ...cloudSave.player, userId: user.uid });
+            if (cloudSave.quests && cloudSave.quests.length > 0) {
+              setQuests(cloudSave.quests);
             }
+            setSyncStatus('synced');
+          } else if (isDifferent || isInitialAuthCheck.current) {
+            setPendingCloudData(cloudSave);
+            setIsSyncConflictOpen(true);
+            setSyncStatus('synced');
           } else {
-            // Nenhum save existente na nuvem: sobe automaticamente os dados locais
-            await saveCloudSave(user.uid, { player, quests });
             setSyncStatus('synced');
           }
-        } catch (err) {
-          console.error('Erro na sincronização inicial do Firestore:', err);
-          setSyncStatus('offline');
-        } finally {
-          isInitialAuthCheck.current = false;
+        } else {
+          // Salva local para a nuvem se online
+          if (navigator.onLine) {
+            await saveCloudSave(user.uid, { player, quests });
+            setSyncStatus('synced');
+          } else {
+            setSyncStatus('offline');
+          }
         }
+      } catch (err) {
+        if (isOfflineError(err)) {
+          setSyncStatus('offline');
+        } else {
+          console.warn('Sincronização adiada (offline ou rede indisponível):', err);
+          setSyncStatus('offline');
+        }
+      } finally {
+        isInitialAuthCheck.current = false;
+      }
+    };
+
+    const unsubscribe = subscribeToAuth((user) => {
+      setCurrentUser(user);
+      if (user) {
+        performInitialSync(user);
       } else {
         setSyncStatus('local');
         isInitialAuthCheck.current = false;
       }
     });
 
-    return () => unsubscribe();
-  }, []);
+    const handleOnline = () => {
+      if (currentUser) {
+        performInitialSync(currentUser);
+      }
+    };
+
+    const handleOffline = () => {
+      setSyncStatus('offline');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [currentUser]);
 
   // Salva no Firestore de forma consolidada e espaçada (debounce) para nunca estourar cotas
   const triggerDebouncedSync = (updatedPlayer: PlayerProfile, updatedQuests?: Quest[]) => {
     if (!currentUser || isSyncConflictOpen) return;
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+
+    if (!navigator.onLine) {
+      setSyncStatus('offline');
+      return;
+    }
 
     setSyncStatus('saving');
     syncTimeoutRef.current = setTimeout(async () => {
@@ -187,8 +223,12 @@ export default function App() {
         });
         setSyncStatus('synced');
       } catch (err) {
-        console.error('Falha ao sincronizar com Firestore:', err);
-        setSyncStatus('offline');
+        if (isOfflineError(err)) {
+          setSyncStatus('offline');
+        } else {
+          console.warn('Falha transitória ao sincronizar com Firestore:', err);
+          setSyncStatus('offline');
+        }
       }
     }, 2500);
   };
@@ -227,8 +267,12 @@ export default function App() {
       setPendingCloudData(null);
       soundEffects.playLevelUp();
     } catch (err) {
-      console.error('Erro ao enviar dados locais para a nuvem:', err);
-      setSyncStatus('offline');
+      if (isOfflineError(err)) {
+        setSyncStatus('offline');
+      } else {
+        console.warn('Erro ao enviar dados locais para a nuvem:', err);
+        setSyncStatus('offline');
+      }
     }
   };
 

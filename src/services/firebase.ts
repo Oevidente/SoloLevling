@@ -136,28 +136,30 @@ export enum OperationType {
   WRITE = 'write',
 }
 
-export interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId?: string | null;
-    email?: string | null;
-  };
+export function isOfflineError(error: unknown): boolean {
+  if (!error) return false;
+  const msg = error instanceof Error ? error.message : String(error);
+  const code = (error as any)?.code;
+  return (
+    code === 'unavailable' ||
+    code === 'failed-precondition' ||
+    msg.includes('client is offline') ||
+    msg.includes('network') ||
+    msg.includes('offline') ||
+    (typeof navigator !== 'undefined' && !navigator.onLine)
+  );
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth?.currentUser?.uid,
-      email: auth?.currentUser?.email,
-    },
-    operationType,
-    path,
-  };
-  console.error('Firestore Error:', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  const isOffline = isOfflineError(error);
+  const errMsg = error instanceof Error ? error.message : String(error);
+  
+  if (isOffline) {
+    console.info(`[Firestore Sync: Offline] Operação ${operationType} em ${path || 'documento'}: aguardando conexão ativa.`);
+    return;
+  }
+  
+  console.warn(`[Firestore Sync: Atenção] Operação ${operationType} em ${path || 'documento'}:`, errMsg);
 }
 
 // ==========================================
@@ -229,7 +231,6 @@ export async function fetchCloudSave(userId: string): Promise<GameSaveData | nul
     if (legacySnap.exists()) {
       const legacyData = legacySnap.data() as any;
       if (legacyData.level || legacyData.stats) {
-        // Busca quests legadas
         const legacyQuests = await loadQuestsFromFirestore(userId);
         return {
           player: legacyData as PlayerProfile,

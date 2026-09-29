@@ -21,6 +21,7 @@ import {
   clearStoredFirebaseConfig, 
   isFirebaseConfigured,
   currentFirebaseConfig,
+  formatFirestoreError,
   FirebaseCustomConfig 
 } from '../services/firebase';
 import { PlayerProfile, Quest } from '../types/hunter';
@@ -76,6 +77,7 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
   const [jsonPaste, setJsonPaste] = useState('');
   
   const [copyFeedback, setCopyFeedback] = useState(false);
+  const [copyRulesFeedback, setCopyRulesFeedback] = useState(false);
   const [saveSuccessFeedback, setSaveSuccessFeedback] = useState(false);
   const [importFeedback, setImportFeedback] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
   
@@ -205,6 +207,13 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
     navigator.clipboard.writeText(window.location.hostname);
     setCopyFeedback(true);
     setTimeout(() => setCopyFeedback(false), 2000);
+  };
+
+  const copyRules = () => {
+    const rulesText = `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /users/{userId}/{allPaths=**} {\n      allow read, write: if request.auth != null && request.auth.uid == userId;\n    }\n    match /users_by_email/{allPaths=**} {\n      allow read, write: if request.auth != null;\n    }\n  }\n}`;
+    navigator.clipboard.writeText(rulesText);
+    setCopyRulesFeedback(true);
+    setTimeout(() => setCopyRulesFeedback(false), 2000);
   };
 
   return (
@@ -377,12 +386,12 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
                           if (!onForcePullFromCloud) return;
                           try {
                             setIsSyncingCloud(true);
-                            setCloudSyncMsg(null);
+                            setCloudSyncMsg('Buscando dados no Firestore...');
                             soundEffects.playSystemBeep();
                             await onForcePullFromCloud();
                             setCloudSyncMsg('✓ Dados baixados da nuvem e restaurados neste aparelho com sucesso!');
                           } catch (err: any) {
-                            setCloudSyncMsg(err?.message || 'Falha ao buscar dados na nuvem.');
+                            setCloudSyncMsg(formatFirestoreError(err));
                           } finally {
                             setIsSyncingCloud(false);
                           }
@@ -399,12 +408,12 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
                           if (!onForceSyncToCloud) return;
                           try {
                             setIsSyncingCloud(true);
-                            setCloudSyncMsg(null);
+                            setCloudSyncMsg('Conectando ao Firestore e gravando progresso...');
                             soundEffects.playSystemBeep();
                             await onForceSyncToCloud();
                             setCloudSyncMsg(`✓ Progresso atual (Nv ${player.level} - ${quests.length} missões) gravado na nuvem!`);
                           } catch (err: any) {
-                            setCloudSyncMsg(`Erro ao enviar: ${err?.message || 'Falha no Firestore'}`);
+                            setCloudSyncMsg(formatFirestoreError(err));
                           } finally {
                             setIsSyncingCloud(false);
                           }
@@ -524,6 +533,16 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
                     <span>4. Ver Config (apiKey / appId)</span>
                     <ExternalLink className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
                   </a>
+
+                  <a
+                    href="https://console.firebase.google.com/u/0/project/_/firestore"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2.5 rounded-lg bg-amber-950/40 hover:bg-amber-900/50 border border-amber-500/40 text-amber-300 font-bold flex items-center justify-between transition-colors col-span-1 sm:col-span-2"
+                  >
+                    <span>5. Firestore Database (Criar Banco e Regras)</span>
+                    <ExternalLink className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                  </a>
                 </div>
 
                 <div className="pt-2 border-t border-slate-800/80 space-y-1.5 text-slate-400 text-[11px]">
@@ -543,6 +562,22 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
                       <span>{copyFeedback ? 'Copiado!' : 'Copiar Domínio'}</span>
                     </button>
                   </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800/80 space-y-1.5 text-slate-400 text-[11px]">
+                  <p>
+                    <strong className="text-amber-300">Regras de Segurança do Firestore (Passo 5 - Aba "Regras"):</strong>
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    Se o banco estiver em modo restrito, cole esta regra para permitir que sua conta autenticada grave o progresso:
+                  </p>
+                  <button
+                    onClick={copyRules}
+                    className="p-1.5 px-3 rounded bg-amber-950/40 hover:bg-amber-900/60 border border-amber-500/50 text-amber-200 text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    {copyRulesFeedback ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-amber-400" />}
+                    <span>{copyRulesFeedback ? 'Regras Copiadas!' : 'Copiar Regras do Firestore'}</span>
+                  </button>
                 </div>
               </div>
 

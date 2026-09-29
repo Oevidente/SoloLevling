@@ -9,6 +9,7 @@ import {
 } from 'firebase/auth';
 import {
   getFirestore,
+  initializeFirestore,
   doc,
   getDoc,
   setDoc,
@@ -84,8 +85,8 @@ export const isFirebaseConfigured = Boolean(
   activeConfig.projectId !== 'MY_PROJECT_ID'
 );
 
-// Helper para evitar bloqueios infinitos nas requisições do Firestore
-export function withTimeout<T>(promise: Promise<T>, timeoutMs = 5000, fallbackVal?: T): Promise<T> {
+// Helper com timeout generoso (15s) para conexões móveis e internacionais
+export function withTimeout<T>(promise: Promise<T>, timeoutMs = 15000, fallbackVal?: T): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((resolve, reject) => {
@@ -100,7 +101,7 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs = 5000, fallbackVa
   ]);
 }
 
-// Inicialização segura do Firebase
+// Inicialização segura do Firebase com auto-detect de long-polling (evita travamentos de streaming)
 let appInstance: any = null;
 let dbInstance: any = null;
 let authInstance: any = null;
@@ -121,16 +122,12 @@ if (isFirebaseConfigured) {
       appInstance = getApp();
     }
 
-    // A base padrão no Firebase Firestore é sempre (default).
-    // Previne erros ao tentar conectar a IDs inválidos que deixam o cliente offline.
-    const customDb = activeConfig.firestoreDatabaseId;
-    if (customDb && customDb !== '(default)' && !customDb.startsWith('ai-studio-')) {
-      try {
-        dbInstance = getFirestore(appInstance, customDb);
-      } catch {
-        dbInstance = getFirestore(appInstance);
-      }
-    } else {
+    // Inicializa o Firestore com fallback de long-polling automático para conexões instáveis
+    try {
+      dbInstance = initializeFirestore(appInstance, {
+        experimentalAutoDetectLongPolling: true,
+      });
+    } catch {
       dbInstance = getFirestore(appInstance);
     }
 
@@ -167,11 +164,30 @@ export function isOfflineError(error: unknown): boolean {
     code === 'unavailable' ||
     code === 'failed-precondition' ||
     msg.includes('client is offline') ||
-    msg.includes('TIMEOUT_EXCEEDED') ||
     msg.includes('network') ||
     msg.includes('offline') ||
     (typeof navigator !== 'undefined' && !navigator.onLine)
   );
+}
+
+export function formatFirestoreError(error: any): string {
+  if (!error) return 'Erro desconhecido ao comunicar com a nuvem.';
+  const code = error?.code || '';
+  const msg = error?.message || String(error);
+
+  if (code === 'permission-denied' || msg.includes('permission-denied') || msg.includes('Missing or insufficient permissions')) {
+    return 'PERMISSÃO NEGADA: As Regras de Segurança do seu Firestore estão bloqueando a gravação. No console do Firebase (Firestore Database > Regras), publique regras permitindo leitura/escrita para usuários autenticados.';
+  }
+  if (code === 'not-found' || msg.includes('not-found') || msg.includes('does not exist')) {
+    return 'BANCO NÃO INICIALIZADO: O Cloud Firestore ainda não foi ativado no seu projeto Firebase. Acesse o console e clique em "Criar banco de dados" em Firestore Database.';
+  }
+  if (msg.includes('TIMEOUT_EXCEEDED')) {
+    return 'TEMPO LIMITE EXCEDIDO: O Firestore demorou para responder. Verifique se o Cloud Firestore foi criado no seu projeto Firebase (console.firebase.google.com) e se o status está ativo.';
+  }
+  if (code === 'unavailable' || msg.includes('unavailable') || msg.includes('client is offline')) {
+    return 'FIREBASE INDISPONÍVEL / OFFLINE: O navegador não conseguiu se conectar ao Firestore. Verifique se o Firestore está criado no Console.';
+  }
+  return msg;
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
@@ -179,7 +195,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   const errMsg = error instanceof Error ? error.message : String(error);
   
   if (isOffline) {
-    console.info(`[Firestore: Offline/Timeout] Operação ${operationType} em ${path || 'doc'}.`);
+    console.info(`[Firestore: Offline] Operação ${operationType} em ${path || 'doc'}. Usando cache local.`);
     return;
   }
   
@@ -231,38 +247,30 @@ export function subscribeToAuth(callback: (user: User | null) => void) {
 
 // ==========================================
 // SINCRONIZAÇÃO COMPLETA DE ALTA EFICIÊNCIA
-// Busca em múltiplos caminhos de compatibilidade (moderno, legado, email)
 // ==========================================
 
 /**
- * Busca o save do jogador no Firestore.
- * Verifica caminho moderno: users/{userId}/game/data
- * Fallbacks de compatibilidade: users/{userId}, users/{email}, players/{userId}
+ * Busca o save consolidado do jogador na nuvem (users/{userId}/game/data)
+ * Com suporte a fallback de chave por email e paths legados.
  */
 export async function fetchCloudSave(userId: string, userEmail?: string | null): Promise<GameSaveData | null> {
   if (!db) return null;
-
-  // 1. Caminho moderno consolidado
+  const path = `users/${userId}/game/data`;
   try {
+    // 1. Caminho consolidado moderno (users/{uid}/game/data)
     const gameDocRef = doc(db, 'users', userId, 'game', 'data');
-    const snap = await withTimeout(getDoc(gameDocRef), 4000);
+    const snap = await withTimeout(getDoc(gameDocRef), 12000);
     if (snap && snap.exists()) {
       const data = snap.data() as GameSaveData;
-      if (data && data.player) {
-        return data;
-      }
+      return data;
     }
-  } catch (err) {
-    handleFirestoreError(err, OperationType.GET, `users/${userId}/game/data`);
-  }
 
-  // 2. Caminho legado direto users/{userId}
-  try {
+    // 2. Caminho legado direto em users/{uid}
     const legacyDocRef = doc(db, 'users', userId);
-    const legacySnap = await withTimeout(getDoc(legacyDocRef), 3500);
+    const legacySnap = await withTimeout(getDoc(legacyDocRef), 4000);
     if (legacySnap && legacySnap.exists()) {
       const legacyData = legacySnap.data() as any;
-      if (legacyData && (legacyData.level || legacyData.stats || legacyData.hunterRank)) {
+      if (legacyData.level || legacyData.stats) {
         const legacyQuests = await loadQuestsFromFirestore(userId);
         return {
           player: legacyData as PlayerProfile,
@@ -272,56 +280,62 @@ export async function fetchCloudSave(userId: string, userEmail?: string | null):
         };
       }
     }
-  } catch (err) {
-    handleFirestoreError(err, OperationType.GET, `users/${userId}`);
-  }
 
-  // 3. Caminho alternativo por email users/{userEmail}
-  if (userEmail) {
+    // 3. Fallback retroativo usando email higienizado como chave de documento
+    if (userEmail) {
+      try {
+        const safeEmailKey = userEmail.replace(/[^a-zA-Z0-9]/g, '_');
+        const emailDocRef = doc(db, 'users_by_email', safeEmailKey);
+        const emailSnap = await withTimeout(getDoc(emailDocRef), 4000);
+        if (emailSnap && emailSnap.exists()) {
+          const emailData = emailSnap.data() as any;
+          if (emailData.player) {
+            return emailData as GameSaveData;
+          } else if (emailData.level || emailData.stats) {
+            const legacyQuests = await loadQuestsFromFirestore(userId);
+            return {
+              player: emailData as PlayerProfile,
+              quests: legacyQuests,
+              updatedAt: emailData.updatedAt || new Date().toISOString(),
+              version: 1,
+            };
+          }
+        }
+      } catch {}
+    }
+
+    // 4. Caminho legado players/{userId}
     try {
-      const emailDocRef = doc(db, 'users', userEmail);
-      const emailSnap = await withTimeout(getDoc(emailDocRef), 3000);
-      if (emailSnap && emailSnap.exists()) {
-        const emailData = emailSnap.data() as any;
-        if (emailData && (emailData.level || emailData.stats)) {
-          const legacyQuests = await loadQuestsFromFirestore(userEmail);
+      const playerDocRef = doc(db, 'players', userId);
+      const playerSnap = await withTimeout(getDoc(playerDocRef), 3000);
+      if (playerSnap && playerSnap.exists()) {
+        const pData = playerSnap.data() as any;
+        if (pData && (pData.level || pData.stats)) {
           return {
-            player: { ...emailData, userId },
-            quests: legacyQuests,
-            updatedAt: emailData.updatedAt || new Date().toISOString(),
+            player: pData as PlayerProfile,
+            quests: [],
+            updatedAt: pData.updatedAt || new Date().toISOString(),
             version: 1,
           };
         }
       }
     } catch {}
+
+    return null;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, path);
+    return null;
   }
-
-  // 4. Caminho legado players/{userId}
-  try {
-    const playerDocRef = doc(db, 'players', userId);
-    const playerSnap = await withTimeout(getDoc(playerDocRef), 2500);
-    if (playerSnap && playerSnap.exists()) {
-      const pData = playerSnap.data() as any;
-      if (pData && (pData.level || pData.stats)) {
-        return {
-          player: pData as PlayerProfile,
-          quests: [],
-          updatedAt: pData.updatedAt || new Date().toISOString(),
-          version: 1,
-        };
-      }
-    }
-  } catch {}
-
-  return null;
 }
 
 /**
  * Salva o jogo completo na nuvem gravando em users/{userId}/game/data
- * e sincronizando o nó raiz users/{userId} para máxima compatibilidade retroativa.
+ * e sincronizando o nó raiz users/{userId} para máxima compatibilidade.
  */
 export async function saveCloudSave(userId: string, data: { player: PlayerProfile; quests: Quest[] }): Promise<void> {
-  if (!db) return;
+  if (!db) {
+    throw new Error('CONFIG_REQUIRED: Firebase Firestore não inicializado.');
+  }
   const path = `users/${userId}/game/data`;
   try {
     const saveData: GameSaveData = {
@@ -336,7 +350,7 @@ export async function saveCloudSave(userId: string, data: { player: PlayerProfil
 
     // 1. Grava no caminho consolidado moderno
     const gameDocRef = doc(db, 'users', userId, 'game', 'data');
-    await withTimeout(setDoc(gameDocRef, saveData), 5000);
+    await withTimeout(setDoc(gameDocRef, saveData), 15000);
 
     // 2. Grava no nó users/{userId} para retrocompatibilidade
     const userDocRef = doc(db, 'users', userId);
@@ -344,7 +358,7 @@ export async function saveCloudSave(userId: string, data: { player: PlayerProfil
       ...data.player,
       userId,
       updatedAt: saveData.updatedAt,
-    }, { merge: true }), 4000).catch(() => {});
+    }, { merge: true }), 8000).catch(() => {});
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
     throw error;
@@ -369,7 +383,7 @@ export async function savePlayerToFirestore(userId: string, profile: PlayerProfi
       ...profile,
       userId,
       updatedAt: new Date().toISOString(),
-    }, { merge: true }), 4000);
+    }, { merge: true }), 10000);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -380,7 +394,7 @@ export async function loadQuestsFromFirestore(userId: string): Promise<Quest[]> 
   const path = `users/${userId}/quests`;
   try {
     const colRef = collection(db, 'users', userId, 'quests');
-    const snap = await withTimeout(getDocs(colRef), 4000);
+    const snap = await withTimeout(getDocs(colRef), 10000);
     const quests: Quest[] = [];
     snap?.forEach((docItem: any) => {
       quests.push({ ...docItem.data(), id: docItem.id } as Quest);
@@ -405,7 +419,7 @@ export async function batchSaveQuestsToFirestore(userId: string, quests: Quest[]
         updatedAt: new Date().toISOString(),
       }, { merge: true });
     });
-    await withTimeout(batch.commit(), 5000);
+    await withTimeout(batch.commit(), 15000);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -416,7 +430,7 @@ export async function deleteQuestFromFirestore(userId: string, questId: string):
   const path = `users/${userId}/quests/${questId}`;
   try {
     const docRef = doc(db, 'users', userId, 'quests', questId);
-    await withTimeout(deleteDoc(docRef), 4000);
+    await withTimeout(deleteDoc(docRef), 8000);
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
   }

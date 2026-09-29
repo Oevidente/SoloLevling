@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Quest, PillarType } from '../types/hunter';
 import { soundEffects } from '../services/soundEffects';
-import { Check, Plus, Trash2, Clock, Flame, Brain, Compass, Lightbulb, Play, Pause, RotateCcw } from 'lucide-react';
+import { Check, Plus, Trash2, Clock, Flame, Brain, Compass, Lightbulb, Play, Pause, RotateCcw, Pencil } from 'lucide-react';
 
 interface QuestListProps {
   quests: Quest[];
   onToggleQuest: (questId: string) => void;
   onDeleteQuest: (questId: string) => void;
+  onEditQuest?: (quest: Quest) => void;
   onOpenNewQuestModal: () => void;
 }
 
@@ -14,6 +15,7 @@ export const QuestList: React.FC<QuestListProps> = ({
   quests,
   onToggleQuest,
   onDeleteQuest,
+  onEditQuest,
   onOpenNewQuestModal,
 }) => {
   const [filter, setFilter] = useState<'todos' | PillarType>('todos');
@@ -352,17 +354,34 @@ export const QuestList: React.FC<QuestListProps> = ({
                     )}
                   </div>
 
-                  {/* Delete button */}
-                  <button
-                    onClick={() => {
-                      soundEffects.playSystemBeep();
-                      onDeleteQuest(quest.id);
-                    }}
-                    className="p-1.5 rounded text-slate-600 hover:text-rose-400 hover:bg-rose-950/20 transition-colors shrink-0 cursor-pointer"
-                    title="Excluir Missão"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  {/* Action buttons */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    {onEditQuest && (
+                      <button
+                        onClick={() => {
+                          soundEffects.playSystemBeep();
+                          onEditQuest(quest);
+                        }}
+                        className="p-1.5 rounded text-slate-500 hover:text-emerald-400 hover:bg-slate-800 transition-colors cursor-pointer"
+                        title="Editar Missão"
+                        aria-label={`Editar ${quest.title}`}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        soundEffects.playSystemBeep();
+                        onDeleteQuest(quest.id);
+                      }}
+                      className="p-1.5 rounded text-slate-600 hover:text-rose-400 hover:bg-rose-950/20 transition-colors cursor-pointer"
+                      title="Excluir Missão"
+                      aria-label={`Excluir ${quest.title}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
 
                 </div>
               </div>

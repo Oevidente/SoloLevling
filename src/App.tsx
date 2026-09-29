@@ -80,6 +80,7 @@ export default function App() {
   const [isRedemptionOpen, setIsRedemptionOpen] = useState(false);
   const [isLootBoxOpen, setIsLootBoxOpen] = useState(false);
   const [isNewQuestOpen, setIsNewQuestOpen] = useState(false);
+  const [editingQuest, setEditingQuest] = useState<Quest | null>(null);
   const [newQuestCategory, setNewQuestCategory] = useState<PillarType>('fisico');
   const [isLevelUpOpen, setIsLevelUpOpen] = useState(false);
   const [previousLevel, setPreviousLevel] = useState(1);
@@ -424,8 +425,26 @@ export default function App() {
 
   // Abrir Modal de Nova Missão para um pilar específico
   const handleOpenNewQuestModal = (category: PillarType = 'fisico') => {
+    setEditingQuest(null);
     setNewQuestCategory(category);
     setIsNewQuestOpen(true);
+  };
+
+  // Abrir Modal de Edição de Missão
+  const handleEditQuest = (quest: Quest) => {
+    setEditingQuest(quest);
+    setNewQuestCategory(quest.category);
+    setIsNewQuestOpen(true);
+  };
+
+  // Atualizar Missão Existente
+  const handleUpdateQuest = (updatedQuest: Quest) => {
+    const updatedQuests = quests.map((q) => (q.id === updatedQuest.id ? updatedQuest : q));
+    setQuests(updatedQuests);
+
+    if (currentUser) {
+      saveQuestToFirestore(currentUser.uid, updatedQuest).catch(console.error);
+    }
   };
 
   // Adicionar Nova Missão
@@ -485,6 +504,7 @@ export default function App() {
             quests={quests}
             onToggleQuest={handleToggleQuest}
             onDeleteQuest={handleDeleteQuest}
+            onEditQuest={handleEditQuest}
             onOpenNewQuestModal={handleOpenNewQuestModal}
             onRenewDay={handleRenewDay}
             onChangeName={handleChangeName}
@@ -547,8 +567,14 @@ export default function App() {
 
       <NewQuestModal
         isOpen={isNewQuestOpen}
-        onClose={() => setIsNewQuestOpen(false)}
+        onClose={() => {
+          setIsNewQuestOpen(false);
+          setEditingQuest(null);
+        }}
         onAddQuest={handleAddQuest}
+        onUpdateQuest={handleUpdateQuest}
+        onDeleteQuest={handleDeleteQuest}
+        questToEdit={editingQuest}
         initialCategory={newQuestCategory}
       />
 

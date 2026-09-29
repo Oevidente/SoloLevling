@@ -12,7 +12,8 @@ import {
   X,
   FileJson,
   ShieldCheck,
-  KeyRound
+  KeyRound,
+  RefreshCw,
 } from 'lucide-react';
 import { 
   getStoredFirebaseConfig, 
@@ -36,6 +37,8 @@ interface CloudBackupModalProps {
   userEmail?: string | null;
   authError?: string | null;
   initialTab?: 'backup' | 'firebase';
+  onForcePullFromCloud?: () => Promise<void>;
+  onForceSyncToCloud?: () => Promise<void>;
 }
 
 export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
@@ -49,8 +52,12 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
   userEmail,
   authError,
   initialTab = 'backup',
+  onForcePullFromCloud,
+  onForceSyncToCloud,
 }) => {
   const [activeTab, setActiveTab] = useState<'backup' | 'firebase'>(initialTab);
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [cloudSyncMsg, setCloudSyncMsg] = useState<string | null>(null);
 
   React.useEffect(() => {
     if (authError || initialTab === 'firebase') {
@@ -176,6 +183,7 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
       appId: finalAppId,
       storageBucket: finalStorageBucket,
       messagingSenderId: finalSenderId,
+      firestoreDatabaseId: '(default)', // Garante uso da base padrão em projetos Firebase normais
     };
 
     saveStoredFirebaseConfig(newCfg);
@@ -352,6 +360,62 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
                     <span className="text-[11px] text-slate-500">Desconectado</span>
                   )}
                 </div>
+
+                {isLoggedIn && (
+                  <div className="pt-2 space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        disabled={isSyncingCloud}
+                        onClick={async () => {
+                          if (!onForcePullFromCloud) return;
+                          try {
+                            setIsSyncingCloud(true);
+                            setCloudSyncMsg(null);
+                            soundEffects.playSystemBeep();
+                            await onForcePullFromCloud();
+                            setCloudSyncMsg('Dados baixados da nuvem com sucesso!');
+                          } catch (err: any) {
+                            setCloudSyncMsg(`Erro ao baixar: ${err?.message || 'Falha no Firestore'}`);
+                          } finally {
+                            setIsSyncingCloud(false);
+                          }
+                        }}
+                        className="py-2 px-2.5 rounded-lg bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500/50 text-emerald-300 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCloud ? 'animate-spin' : ''}`} />
+                        <span>Baixar da Nuvem</span>
+                      </button>
+
+                      <button
+                        disabled={isSyncingCloud}
+                        onClick={async () => {
+                          if (!onForceSyncToCloud) return;
+                          try {
+                            setIsSyncingCloud(true);
+                            setCloudSyncMsg(null);
+                            soundEffects.playSystemBeep();
+                            await onForceSyncToCloud();
+                            setCloudSyncMsg('Dados enviados para a nuvem com sucesso!');
+                          } catch (err: any) {
+                            setCloudSyncMsg(`Erro ao enviar: ${err?.message || 'Falha no Firestore'}`);
+                          } finally {
+                            setIsSyncingCloud(false);
+                          }
+                        }}
+                        className="py-2 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Subir pra Nuvem</span>
+                      </button>
+                    </div>
+
+                    {cloudSyncMsg && (
+                      <p className="text-[11px] text-center font-mono text-emerald-300 bg-emerald-950/40 p-1.5 rounded border border-emerald-500/30">
+                        {cloudSyncMsg}
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {!isLoggedIn && (
                   <button

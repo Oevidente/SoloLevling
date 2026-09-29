@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { PlayerProfile, Quest, PillarType } from '../types/hunter';
 import { soundEffects } from '../services/soundEffects';
-import { Shield, Zap, Sparkles, Check, RefreshCw, Plus, Trash2, Clock, RotateCcw, Share2, Lock } from 'lucide-react';
+import { Shield, Zap, Sparkles, Check, RefreshCw, Plus, Trash2, Clock, RotateCcw, Share2, Lock, Pencil, AlertTriangle, X } from 'lucide-react';
 
 interface StatusHudProps {
   player: PlayerProfile;
   quests: Quest[];
   onToggleQuest: (questId: string) => void;
   onDeleteQuest: (questId: string) => void;
+  onEditQuest: (quest: Quest) => void;
   onOpenNewQuestModal: (category?: PillarType) => void;
   onRenewDay: () => void;
   onChangeName: (newName: string) => void;
@@ -21,6 +22,7 @@ export const StatusHud: React.FC<StatusHudProps> = ({
   quests,
   onToggleQuest,
   onDeleteQuest,
+  onEditQuest,
   onOpenNewQuestModal,
   onRenewDay,
   onChangeName,
@@ -40,6 +42,9 @@ export const StatusHud: React.FC<StatusHudProps> = ({
 
   // Toast / feedback de missão travada
   const [lockedNotice, setLockedNotice] = useState<string | null>(null);
+
+  // Confirmação de exclusão
+  const [questToDelete, setQuestToDelete] = useState<Quest | null>(null);
 
   React.useEffect(() => {
     let interval: NodeJS.Timeout | null = null;
@@ -80,6 +85,14 @@ export const StatusHud: React.FC<StatusHudProps> = ({
     onToggleQuest(quest.id);
   };
 
+  const confirmDelete = () => {
+    if (questToDelete) {
+      soundEffects.playSystemBeep();
+      onDeleteQuest(questToDelete.id);
+      setQuestToDelete(null);
+    }
+  };
+
   const xpPercent = Math.min(100, Math.round((player.currentXp / player.nextLevelXp) * 100));
 
   const fisicoQuests = quests.filter((q) => q.category === 'fisico');
@@ -118,136 +131,146 @@ export const StatusHud: React.FC<StatusHudProps> = ({
           <div className="flex flex-wrap items-center gap-3 sm:gap-4 self-stretch lg:self-auto justify-between lg:justify-end">
             <div className="text-left sm:text-right pr-2">
               <span className="text-[10px] sm:text-[11px] font-mono font-bold text-slate-400 tracking-wider block uppercase">
-                NÍVEL ATUAL
+                Sequência de Caça
               </span>
-              <div className="text-2xl sm:text-3xl font-black font-display text-emerald-400 neon-text-green tabular-nums">
-                LV. {player.level}
-              </div>
+              <span className="text-base sm:text-lg font-black text-amber-400 font-mono tracking-tight tabular-nums flex items-center gap-1">
+                <span>🔥</span> {player.streakDays} {player.streakDays === 1 ? 'Dia Ativo' : 'Dias Ativos'}
+              </span>
             </div>
 
-            {/* Botão Tela de Print / Relatório do Ciclo */}
-            <button
-              onClick={() => {
-                soundEffects.playSystemBeep();
-                onOpenCycleReport();
-              }}
-              className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-slate-950 bg-gradient-to-r from-emerald-400 to-green-500 hover:from-emerald-300 hover:to-green-400 rounded-lg transition-all shadow-[0_0_15px_rgba(34,197,94,0.35)] cursor-pointer whitespace-nowrap"
-              title="Abre a tela de resumo pronta para printar e postar nas redes ou guardar"
-            >
-              <Share2 className="w-3.5 h-3.5 stroke-[2.5]" />
-              <span>Relatório do Ciclo (Print)</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  soundEffects.playSystemBeep();
+                  onOpenCycleReport();
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold font-mono uppercase tracking-wider text-emerald-300 bg-emerald-950/60 border border-emerald-400/50 hover:bg-emerald-500/20 rounded-lg transition-all cursor-pointer shadow-[0_0_12px_rgba(34,197,94,0.2)]"
+                title="Ver Relatório Diário de Conquistas"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Relatório</span>
+              </button>
 
-            {/* Botão Renovar Dia */}
-            <button
-              onClick={() => {
-                soundEffects.playSystemBeep();
-                onRenewDay();
-              }}
-              className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-emerald-300 bg-emerald-950/60 hover:bg-emerald-500/20 border border-emerald-500/50 rounded-lg transition-all shadow-[0_0_12px_rgba(34,197,94,0.15)] cursor-pointer whitespace-nowrap"
-              title="Reseta o ciclo diário de missões preservando seu nível e histórico"
-            >
-              <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Renovar Dia</span>
-            </button>
+              <button
+                onClick={() => {
+                  soundEffects.playLevelUp();
+                  onRenewDay();
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold font-mono uppercase tracking-wider text-slate-950 bg-gradient-to-r from-emerald-400 via-green-400 to-emerald-300 hover:from-emerald-300 hover:to-green-200 rounded-lg transition-all cursor-pointer shadow-[0_0_15px_rgba(34,197,94,0.4)]"
+                title="Renovar ciclo diário e resetar missões para um novo dia"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Novo Dia</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Notificação flutuante de trava diária anti-repetição */}
-        {lockedNotice && (
-          <div className="p-3 rounded-lg bg-amber-950/80 border border-amber-400/80 text-amber-200 text-xs flex items-center justify-between gap-3 shadow-[0_0_20px_rgba(245,158,11,0.25)] animate-in fade-in duration-200">
-            <div className="flex items-center gap-2">
-              <Lock className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>{lockedNotice}</span>
-            </div>
-            <button
-              onClick={() => setLockedNotice(null)}
-              className="text-amber-400 hover:text-amber-200 font-bold px-1"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
-        {/* Linha 2: Cards de JOGADOR e PROGRESSO DE EXPERIÊNCIA (XP) */}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-6">
+        {/* Linha 1: Cartão de Identidade do Caçador */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-center bg-slate-950/60 p-4 sm:p-5 rounded-xl border border-slate-800/80">
           
-          {/* Card JOGADOR */}
-          <div className="md:col-span-5 rounded-xl bg-slate-950/70 border border-slate-800/80 p-4 space-y-1">
-            <span className="text-[11px] font-mono font-bold uppercase text-slate-400 tracking-wider block">
-              JOGADOR
-            </span>
-
-            {isEditingName ? (
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={nameInput}
-                  onChange={(e) => setNameInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSaveName()}
-                  className="bg-slate-900 border border-emerald-400 text-slate-100 text-sm px-2 py-1 rounded outline-none w-full font-bold"
-                  autoFocus
-                />
-                <button
-                  onClick={handleSaveName}
-                  className="text-xs text-emerald-400 hover:underline font-semibold cursor-pointer shrink-0"
-                >
-                  Salvar
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 group cursor-pointer" onClick={() => setIsEditingName(true)}>
-                <h2 className="text-base sm:text-lg font-bold text-slate-100 truncate group-hover:text-emerald-300 transition-colors">
-                  {player.name}
-                </h2>
-                <span className="text-[10px] text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity font-mono">
-                  (editar)
-                </span>
-              </div>
-            )}
-
-            {isEditingTitle ? (
-              <div className="flex items-center gap-2 pt-1">
-                <input
-                  type="text"
-                  value={titleInput}
-                  onChange={(e) => setTitleInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSaveTitle()}
-                  className="bg-slate-900 border border-emerald-400 text-emerald-300 text-xs px-2 py-0.5 rounded outline-none w-full font-medium"
-                  autoFocus
-                />
-                <button
-                  onClick={handleSaveTitle}
-                  className="text-xs text-emerald-400 hover:underline font-semibold cursor-pointer shrink-0"
-                >
-                  Salvar
-                </button>
-              </div>
-            ) : (
-              <p
-                onClick={() => setIsEditingTitle(true)}
-                className="text-xs text-emerald-400 font-semibold truncate hover:text-emerald-300 cursor-pointer transition-colors"
-                title="Clique para editar o título/classe"
-              >
-                {player.hunterTitle || 'Desenvolvedor / Monarca da Resiliência'}
-              </p>
-            )}
-          </div>
-
-          {/* Card PROGRESSO DE EXPERIÊNCIA (XP) */}
-          <div className="md:col-span-7 rounded-xl bg-slate-950/70 border border-slate-800/80 p-4 flex flex-col justify-center space-y-2.5">
-            <div className="flex items-center justify-between text-xs font-mono">
-              <span className="text-[11px] font-mono font-bold uppercase text-slate-400 tracking-wider">
-                PROGRESSO DE EXPERIÊNCIA (XP)
+          {/* Identificação */}
+          <div className="md:col-span-2 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-500/40 uppercase tracking-widest">
+                RANK {player.hunterRank}
               </span>
-              <span className="text-xs font-mono font-bold text-slate-200 tabular-nums">
-                {player.currentXp} / {player.nextLevelXp} XP
+              <span className="text-xs text-slate-400 font-mono">
+                [ID: {player.userId.slice(0, 8)}]
               </span>
             </div>
 
-            <div className="h-4 w-full bg-slate-900/90 rounded-full border border-slate-800 p-0.5 overflow-hidden">
+            {/* Nome Editável */}
+            <div className="flex items-center gap-2">
+              {isEditingName ? (
+                <div className="flex items-center gap-2 w-full max-w-sm">
+                  <input
+                    type="text"
+                    value={nameInput}
+                    onChange={(e) => setNameInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSaveName()}
+                    className="bg-slate-900 border border-emerald-500 text-slate-100 px-2.5 py-1 text-base rounded outline-none w-full"
+                    autoFocus
+                  />
+                  <button
+                    onClick={handleSaveName}
+                    className="p-1.5 bg-emerald-500 text-slate-950 rounded hover:bg-emerald-400 text-xs font-bold"
+                  >
+                    Salvar
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 group">
+                  <h2 className="text-lg sm:text-xl font-bold text-slate-100 font-display tracking-wide">
+                    {player.name}
+                  </h2>
+                  <button
+                    onClick={() => {
+                      setNameInput(player.name);
+                      setIsEditingName(true);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-emerald-400 p-1 transition-opacity cursor-pointer"
+                    title="Editar nome"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Título Editável */}
+            <div className="flex items-center gap-2">
+              {isEditingTitle ? (
+                <div className="flex items-center gap-2 w-full max-w-md">
+                  <input
+                    type="text"
+                    value={titleInput}
+                    onChange={(e) => setTitleInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSaveTitle()}
+                    className="bg-slate-900 border border-emerald-500 text-slate-100 px-2.5 py-1 text-xs rounded outline-none w-full"
+                    autoFocus
+                  />
+                  <button
+                    onClick={handleSaveTitle}
+                    className="p-1 bg-emerald-500 text-slate-950 rounded hover:bg-emerald-400 text-xs font-bold"
+                  >
+                    Salvar
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 group">
+                  <p className="text-xs text-emerald-400/90 font-medium">
+                    « {player.hunterTitle} »
+                  </p>
+                  <button
+                    onClick={() => {
+                      setTitleInput(player.hunterTitle);
+                      setIsEditingTitle(true);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-emerald-400 p-0.5 transition-opacity cursor-pointer"
+                    title="Editar título"
+                  >
+                    <Pencil className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Nível e Barra de XP */}
+          <div className="space-y-2 bg-slate-900/80 p-3.5 rounded-lg border border-slate-800">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono font-bold text-slate-300">
+                NÍVEL <span className="text-emerald-400 text-sm font-black">{player.level}</span>
+              </span>
+              <span className="text-xs font-mono text-emerald-400 font-bold tabular-nums">
+                {player.currentXp} / {player.nextLevelXp} XP ({xpPercent}%)
+              </span>
+            </div>
+            
+            <div className="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800 relative">
               <div
-                className="h-full bg-gradient-to-r from-emerald-500 via-green-400 to-emerald-300 rounded-full transition-all duration-500 shadow-[0_0_14px_rgba(34,197,94,0.7)]"
+                className="h-full bg-gradient-to-r from-emerald-500 via-green-400 to-emerald-300 rounded-full transition-all duration-500 shadow-[0_0_10px_rgba(34,197,94,0.7)]"
                 style={{ width: `${xpPercent}%` }}
               />
             </div>
@@ -255,51 +278,123 @@ export const StatusHud: React.FC<StatusHudProps> = ({
 
         </div>
 
-        {/* Barra Rápida de Hiperfoco TDA */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-slate-950/50 rounded-xl px-4 py-2.5 border border-slate-800/60 text-xs gap-3">
-          <div className="flex items-center gap-2">
-            <Clock className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span className="text-slate-300 font-medium">Timer de Hiperfoco (Anti-Cegueira Temporal):</span>
-            <span className="font-mono text-emerald-300 font-bold tabular-nums text-sm">
-              {formatTimer(secondsRemaining)}
-            </span>
+        {/* Linha 2: Barra de Status dos 3 Pilares com Contadores e Timer de Foco */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          
+          {/* Pilar Físico */}
+          <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-xl p-3.5 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-emerald-950/80 border border-emerald-500/50 flex items-center justify-center shrink-0">
+                <Shield className="w-5 h-5 text-emerald-400" />
+              </div>
+              <div>
+                <span className="text-[10px] font-mono text-slate-400 uppercase block tracking-wider">Pilar</span>
+                <span className="text-xs font-black text-emerald-300 uppercase tracking-wider">FÍSICO</span>
+              </div>
+            </div>
+            <div className="text-right">
+              <span className="text-lg font-black text-emerald-400 font-mono tabular-nums">{player.stats.fisico}</span>
+              <span className="text-[10px] text-slate-400 block font-mono">pts</span>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 self-end sm:self-auto">
+          {/* Pilar Mental */}
+          <div className="bg-teal-950/30 border border-teal-500/30 rounded-xl p-3.5 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-teal-950/80 border border-teal-500/50 flex items-center justify-center shrink-0">
+                <Zap className="w-5 h-5 text-teal-400" />
+              </div>
+              <div>
+                <span className="text-[10px] font-mono text-slate-400 uppercase block tracking-wider">Pilar</span>
+                <span className="text-xs font-black text-teal-300 uppercase tracking-wider">MENTAL</span>
+              </div>
+            </div>
+            <div className="text-right">
+              <span className="text-lg font-black text-teal-400 font-mono tabular-nums">{player.stats.mental}</span>
+              <span className="text-[10px] text-slate-400 block font-mono">pts</span>
+            </div>
+          </div>
+
+          {/* Pilar Espiritual */}
+          <div className="bg-amber-950/30 border border-amber-500/30 rounded-xl p-3.5 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-amber-950/80 border border-amber-500/50 flex items-center justify-center shrink-0">
+                <Sparkles className="w-5 h-5 text-amber-400" />
+              </div>
+              <div>
+                <span className="text-[10px] font-mono text-slate-400 uppercase block tracking-wider">Pilar</span>
+                <span className="text-xs font-black text-amber-300 uppercase tracking-wider">ESPIRITUAL</span>
+              </div>
+            </div>
+            <div className="text-right">
+              <span className="text-lg font-black text-amber-400 font-mono tabular-nums">{player.stats.espiritual}</span>
+              <span className="text-[10px] text-slate-400 block font-mono">pts</span>
+            </div>
+          </div>
+
+          {/* Timer de Hiperfoco TDA Anti-Inércia */}
+          <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-emerald-400" />
+              <div>
+                <span className="text-[10px] font-mono text-slate-400 block uppercase">Foco TDA</span>
+                <span className="text-sm font-black font-mono text-emerald-300 tabular-nums">
+                  {formatTimer(secondsRemaining)}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => {
+                  soundEffects.playSystemBeep();
+                  setIsTimerRunning(!isTimerRunning);
+                }}
+                className={`px-2.5 py-1 text-[11px] font-bold rounded cursor-pointer transition-all ${
+                  isTimerRunning
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30'
+                }`}
+              >
+                {isTimerRunning ? 'Pausar' : 'Iniciar'}
+              </button>
+              <button
+                onClick={() => {
+                  soundEffects.playSystemBeep();
+                  setIsTimerRunning(false);
+                  setSecondsRemaining(timerMinutes * 60);
+                }}
+                className="p-1 text-slate-400 hover:text-slate-200 cursor-pointer"
+                title="Reiniciar timer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+        </div>
+
+        {/* Aviso de missão travada no ciclo diário */}
+        {lockedNotice && (
+          <div className="p-3 rounded-lg bg-amber-950/60 border border-amber-500/50 text-amber-200 text-xs flex items-center justify-between gap-3 animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <Lock className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>{lockedNotice}</span>
+            </div>
             <button
-              onClick={() => {
-                soundEffects.playSystemBeep();
-                setIsTimerRunning(!isTimerRunning);
-              }}
-              className={`px-3 py-1 rounded text-xs font-bold uppercase transition-all cursor-pointer ${
-                isTimerRunning
-                  ? 'bg-amber-500/20 text-amber-300 border border-amber-400/50'
-                  : 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/50 hover:bg-emerald-500/30'
-              }`}
+              onClick={() => setLockedNotice(null)}
+              className="text-amber-400 hover:text-amber-200 p-1 cursor-pointer"
             >
-              {isTimerRunning ? 'Pausar' : 'Iniciar 20m'}
-            </button>
-            <button
-              onClick={() => {
-                soundEffects.playSystemBeep();
-                setIsTimerRunning(false);
-                setSecondsRemaining(timerMinutes * 60);
-              }}
-              className="p-1 text-slate-400 hover:text-slate-200 cursor-pointer"
-              title="Reiniciar timer"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
-        </div>
+        )}
 
         {/* Linha 3: AS TRÊS COLUNAS DA TRÍADE COM AS MISSÕES DIÁRIAS (Físico, Mental, Espiritual) */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 sm:gap-6 items-start">
           
-          {/* COLUNA 1: FÍSICO (Com seletor .system-window e contador de pendentes) */}
+          {/* COLUNA 1: FÍSICO */}
           <div className="system-window rounded-xl p-4 sm:p-5 space-y-4">
             
-            {/* Header do Pilar com Contador de Pendentes */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-800/90 gap-2">
               <div className="flex items-center gap-2.5">
                 <div className="w-7 h-7 rounded-lg bg-emerald-950/60 border border-emerald-500/40 flex items-center justify-center shrink-0">
@@ -349,14 +444,14 @@ export const StatusHud: React.FC<StatusHudProps> = ({
                 fisicoQuests.map((quest) => (
                   <div
                     key={quest.id}
-                    className={`rounded-xl p-3.5 border transition-all space-y-2 group ${
+                    className={`rounded-xl p-3.5 border transition-all space-y-2 group relative ${
                       quest.isCompleted
                         ? 'border-emerald-500/30 bg-emerald-950/20'
                         : 'border-slate-800/90 bg-slate-900/60 hover:border-emerald-500/40'
                     }`}
                   >
                     <div className="flex items-start gap-3">
-                      {/* Checkbox com trava anti-duplicação diária */}
+                      {/* Checkbox */}
                       <button
                         onClick={() => handleQuestClick(quest)}
                         className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-all cursor-pointer ${
@@ -375,7 +470,7 @@ export const StatusHud: React.FC<StatusHudProps> = ({
                       </button>
 
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <h4
                             onClick={() => handleQuestClick(quest)}
                             className={`text-xs sm:text-sm font-semibold cursor-pointer transition-colors leading-snug ${
@@ -405,13 +500,32 @@ export const StatusHud: React.FC<StatusHudProps> = ({
                         )}
                       </div>
 
-                      <button
-                        onClick={() => onDeleteQuest(quest.id)}
-                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-rose-400 transition-opacity cursor-pointer shrink-0"
-                        title="Excluir meta"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {/* Botões de Ação: Editar e Excluir */}
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <button
+                          onClick={() => {
+                            soundEffects.playSystemBeep();
+                            onEditQuest(quest);
+                          }}
+                          className="p-1.5 rounded text-slate-400 hover:text-emerald-300 hover:bg-slate-800 transition-all cursor-pointer"
+                          title="Editar missão"
+                          aria-label={`Editar ${quest.title}`}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            soundEffects.playSystemBeep();
+                            setQuestToDelete(quest);
+                          }}
+                          className="p-1.5 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-950/30 transition-all cursor-pointer"
+                          title="Excluir missão"
+                          aria-label={`Excluir ${quest.title}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="flex items-center justify-end pt-1">
@@ -426,10 +540,9 @@ export const StatusHud: React.FC<StatusHudProps> = ({
 
           </div>
 
-          {/* COLUNA 2: MENTAL (Com seletor .system-window e contador de pendentes) */}
+          {/* COLUNA 2: MENTAL */}
           <div className="system-window rounded-xl p-4 sm:p-5 space-y-4">
             
-            {/* Header do Pilar com Contador de Pendentes */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-800/90 gap-2">
               <div className="flex items-center gap-2.5">
                 <div className="w-7 h-7 rounded-lg bg-teal-950/60 border border-teal-500/40 flex items-center justify-center shrink-0">
@@ -479,14 +592,14 @@ export const StatusHud: React.FC<StatusHudProps> = ({
                 mentalQuests.map((quest) => (
                   <div
                     key={quest.id}
-                    className={`rounded-xl p-3.5 border transition-all space-y-2 group ${
+                    className={`rounded-xl p-3.5 border transition-all space-y-2 group relative ${
                       quest.isCompleted
                         ? 'border-teal-500/30 bg-teal-950/20'
                         : 'border-slate-800/90 bg-slate-900/60 hover:border-teal-500/40'
                     }`}
                   >
                     <div className="flex items-start gap-3">
-                      {/* Checkbox com trava anti-duplicação diária */}
+                      {/* Checkbox */}
                       <button
                         onClick={() => handleQuestClick(quest)}
                         className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-all cursor-pointer ${
@@ -505,7 +618,7 @@ export const StatusHud: React.FC<StatusHudProps> = ({
                       </button>
 
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <h4
                             onClick={() => handleQuestClick(quest)}
                             className={`text-xs sm:text-sm font-semibold cursor-pointer transition-colors leading-snug ${
@@ -535,13 +648,32 @@ export const StatusHud: React.FC<StatusHudProps> = ({
                         )}
                       </div>
 
-                      <button
-                        onClick={() => onDeleteQuest(quest.id)}
-                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-rose-400 transition-opacity cursor-pointer shrink-0"
-                        title="Excluir meta"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {/* Botões de Ação: Editar e Excluir */}
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <button
+                          onClick={() => {
+                            soundEffects.playSystemBeep();
+                            onEditQuest(quest);
+                          }}
+                          className="p-1.5 rounded text-slate-400 hover:text-teal-300 hover:bg-slate-800 transition-all cursor-pointer"
+                          title="Editar missão"
+                          aria-label={`Editar ${quest.title}`}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            soundEffects.playSystemBeep();
+                            setQuestToDelete(quest);
+                          }}
+                          className="p-1.5 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-950/30 transition-all cursor-pointer"
+                          title="Excluir missão"
+                          aria-label={`Excluir ${quest.title}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="flex items-center justify-end pt-1">
@@ -556,10 +688,9 @@ export const StatusHud: React.FC<StatusHudProps> = ({
 
           </div>
 
-          {/* COLUNA 3: ESPIRITUAL (Com seletor .system-window e contador de pendentes) */}
+          {/* COLUNA 3: ESPIRITUAL */}
           <div className="system-window rounded-xl p-4 sm:p-5 space-y-4">
             
-            {/* Header do Pilar com Contador de Pendentes */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-800/90 gap-2">
               <div className="flex items-center gap-2.5">
                 <div className="w-7 h-7 rounded-lg bg-amber-950/60 border border-amber-500/40 flex items-center justify-center shrink-0">
@@ -609,14 +740,14 @@ export const StatusHud: React.FC<StatusHudProps> = ({
                 espiritualQuests.map((quest) => (
                   <div
                     key={quest.id}
-                    className={`rounded-xl p-3.5 border transition-all space-y-2 group ${
+                    className={`rounded-xl p-3.5 border transition-all space-y-2 group relative ${
                       quest.isCompleted
                         ? 'border-amber-500/30 bg-amber-950/20'
                         : 'border-slate-800/90 bg-slate-900/60 hover:border-amber-500/40'
                     }`}
                   >
                     <div className="flex items-start gap-3">
-                      {/* Checkbox com trava anti-duplicação diária */}
+                      {/* Checkbox */}
                       <button
                         onClick={() => handleQuestClick(quest)}
                         className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-all cursor-pointer ${
@@ -635,7 +766,7 @@ export const StatusHud: React.FC<StatusHudProps> = ({
                       </button>
 
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <h4
                             onClick={() => handleQuestClick(quest)}
                             className={`text-xs sm:text-sm font-semibold cursor-pointer transition-colors leading-snug ${
@@ -665,13 +796,32 @@ export const StatusHud: React.FC<StatusHudProps> = ({
                         )}
                       </div>
 
-                      <button
-                        onClick={() => onDeleteQuest(quest.id)}
-                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-rose-400 transition-opacity cursor-pointer shrink-0"
-                        title="Excluir meta"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {/* Botões de Ação: Editar e Excluir */}
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <button
+                          onClick={() => {
+                            soundEffects.playSystemBeep();
+                            onEditQuest(quest);
+                          }}
+                          className="p-1.5 rounded text-slate-400 hover:text-amber-300 hover:bg-slate-800 transition-all cursor-pointer"
+                          title="Editar missão"
+                          aria-label={`Editar ${quest.title}`}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            soundEffects.playSystemBeep();
+                            setQuestToDelete(quest);
+                          }}
+                          className="p-1.5 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-950/30 transition-all cursor-pointer"
+                          title="Excluir missão"
+                          aria-label={`Excluir ${quest.title}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="flex items-center justify-end pt-1">
@@ -697,7 +847,44 @@ export const StatusHud: React.FC<StatusHudProps> = ({
 
       </div>
 
-      {/* Banner de Baús de Suprimentos (se houver disponível) */}
+      {/* Modal de Confirmação de Exclusão */}
+      {questToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="system-window rounded-2xl max-w-md w-full p-6 border-2 border-rose-500/60 shadow-[0_0_30px_rgba(244,63,94,0.3)] animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-950/80 border border-rose-500/50 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-rose-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-bold text-slate-100 uppercase tracking-wide">
+                  Excluir Missão?
+                </h3>
+                <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                  Tem certeza que deseja remover a missão <span className="font-semibold text-rose-300">"{questToDelete.title}"</span>?
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 mt-6 pt-3 border-t border-slate-800">
+              <button
+                onClick={() => setQuestToDelete(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg cursor-pointer transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 rounded-lg shadow-[0_0_15px_rgba(244,63,94,0.4)] cursor-pointer transition-all flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Sim, Excluir</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Banner de Baús de Suprimentos */}
       {player.lootBoxesAvailable > 0 && (
         <div className="system-window-gold rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-3">

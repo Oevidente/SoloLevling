@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User } from 'firebase/auth';
-import { Volume2, VolumeX, LogIn, LogOut, Shield, Gift, LayoutDashboard, Package, Share2, Cloud, Check, RefreshCw } from 'lucide-react';
+import { Volume2, VolumeX, LogIn, LogOut, Shield, Gift, LayoutDashboard, Package, Share2, Cloud, Check, RefreshCw, WifiOff } from 'lucide-react';
 import { soundEffects } from '../services/soundEffects';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -44,7 +44,6 @@ export const TopBar: React.FC<TopBarProps> = ({
       
       {/* ========================================================
           DESKTOP TOP BAR (Só no modo desktop: hidden md:block)
-          Navegação fluida, completa e espaçosa para telas médias/grandes
           ======================================================== */}
       <div className="hidden md:block">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between gap-4">
@@ -67,9 +66,8 @@ export const TopBar: React.FC<TopBarProps> = ({
             </button>
           </div>
 
-          {/* Zone 2: Desktop Navigation Tabs (Fluida e sem atrito) */}
+          {/* Zone 2: Desktop Navigation Tabs */}
           <nav className="flex items-center gap-2">
-            {/* Aba Status */}
             <button
               onClick={() => {
                 soundEffects.playSystemBeep();
@@ -85,7 +83,6 @@ export const TopBar: React.FC<TopBarProps> = ({
               <span>Painel da Tríade</span>
             </button>
 
-            {/* Aba Inventário */}
             <button
               onClick={() => {
                 soundEffects.playSystemBeep();
@@ -106,7 +103,6 @@ export const TopBar: React.FC<TopBarProps> = ({
               )}
             </button>
 
-            {/* Botão Relatório do Ciclo */}
             <button
               onClick={() => {
                 soundEffects.playSystemBeep();
@@ -119,7 +115,6 @@ export const TopBar: React.FC<TopBarProps> = ({
               <span>Relatório</span>
             </button>
 
-            {/* Botão Redenção */}
             <button
               onClick={() => {
                 soundEffects.playAlertNotice();
@@ -135,10 +130,8 @@ export const TopBar: React.FC<TopBarProps> = ({
 
           {/* Zone 3: Desktop Primary Actions */}
           <div className="flex items-center gap-3 shrink-0">
-            {/* Botão de Instalação do App PWA */}
             <PWAInstallButton variant="topbar" />
 
-            {/* Caixa de Suprimentos */}
             {lootBoxesCount > 0 && (
               <button
                 onClick={() => {
@@ -155,7 +148,6 @@ export const TopBar: React.FC<TopBarProps> = ({
               </button>
             )}
 
-            {/* Áudio SFX */}
             <button
               onClick={onToggleMute}
               className="p-2 rounded-lg bg-slate-900/80 border border-slate-700/60 text-slate-300 hover:text-emerald-300 hover:border-emerald-500/40 transition-colors cursor-pointer"
@@ -182,6 +174,11 @@ export const TopBar: React.FC<TopBarProps> = ({
                     <>
                       <RefreshCw className="w-2.5 h-2.5 animate-spin text-amber-400" />
                       <span className="text-amber-400">Salvando</span>
+                    </>
+                  ) : syncStatus === 'offline' ? (
+                    <>
+                      <WifiOff className="w-2.5 h-2.5 text-amber-400" />
+                      <span className="text-amber-400">Local</span>
                     </>
                   ) : (
                     <>
@@ -234,12 +231,10 @@ export const TopBar: React.FC<TopBarProps> = ({
 
       {/* ========================================================
           MOBILE TOP HEADER (Apenas no mobile: md:hidden)
-          Sem navbar superior! Apenas identidade visual + utilidades rápidas
           ======================================================== */}
       <div className="md:hidden">
         <div className="px-3.5 h-13 flex items-center justify-between gap-2">
           
-          {/* Logo / Marca Compacta */}
           <div className="flex items-center gap-2 shrink-0">
             <div className="w-7 h-7 rounded-md border border-emerald-400/70 bg-emerald-950/60 flex items-center justify-center shadow-[0_0_10px_rgba(34,197,94,0.4)]">
               <span className="font-mono text-emerald-400 font-black text-xs">SL</span>
@@ -257,12 +252,9 @@ export const TopBar: React.FC<TopBarProps> = ({
             </button>
           </div>
 
-          {/* Ações Rápidas no Topo Mobile */}
           <div className="flex items-center gap-1.5 shrink-0 relative">
-            {/* Botão de Instalar PWA no Mobile */}
             <PWAInstallButton variant="compact" />
             
-            {/* Caixa de Suprimentos (Se disponível) */}
             {lootBoxesCount > 0 && (
               <button
                 onClick={() => {
@@ -280,7 +272,6 @@ export const TopBar: React.FC<TopBarProps> = ({
               </button>
             )}
 
-            {/* Controle de Áudio SFX */}
             <button
               onClick={onToggleMute}
               className="p-1.5 rounded-lg bg-slate-900/90 border border-slate-700/70 text-slate-300 active:scale-95 transition-colors cursor-pointer"
@@ -290,7 +281,6 @@ export const TopBar: React.FC<TopBarProps> = ({
               {isMuted ? <VolumeX className="w-4 h-4 text-slate-500" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
             </button>
 
-            {/* Auth / Avatar Mobile */}
             {user ? (
               <div className="relative">
                 <button
@@ -315,7 +305,6 @@ export const TopBar: React.FC<TopBarProps> = ({
                   )}
                 </button>
 
-                {/* Dropdown do perfil no mobile para logout e status */}
                 {showMobileProfileMenu && (
                   <div className="absolute right-0 top-9 w-48 bg-[#030d06] border border-emerald-500/40 rounded-xl p-3 shadow-[0_10px_25px_rgba(0,0,0,0.85)] z-50 animate-in fade-in zoom-in-95 duration-150">
                     <div className="pb-2 mb-2 border-b border-slate-800">
@@ -326,8 +315,22 @@ export const TopBar: React.FC<TopBarProps> = ({
                         {user.email || 'Conta Vinculada'}
                       </p>
                       <div className="mt-1 flex items-center gap-1 text-[9px] font-mono text-emerald-400 bg-emerald-950/80 px-1.5 py-0.5 rounded border border-emerald-500/30">
-                        <Check className="w-2.5 h-2.5" />
-                        <span>Nuvem Ativa & Sincronizada</span>
+                        {syncStatus === 'saving' ? (
+                          <>
+                            <RefreshCw className="w-2.5 h-2.5 animate-spin text-amber-400" />
+                            <span className="text-amber-400">Salvando...</span>
+                          </>
+                        ) : syncStatus === 'offline' ? (
+                          <>
+                            <WifiOff className="w-2.5 h-2.5 text-amber-400" />
+                            <span className="text-amber-400">Modo Offline (Salvo Local)</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-2.5 h-2.5" />
+                            <span>Nuvem Sincronizada</span>
+                          </>
+                        )}
                       </div>
                     </div>
                     <button

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { User } from 'firebase/auth';
 import { TopBar } from './components/TopBar';
 import { StatusHud } from './components/StatusHud';
@@ -22,7 +22,6 @@ import {
   logoutUser, 
   fetchCloudSave, 
   saveCloudSave, 
-  isOfflineError,
   GameSaveData 
 } from './services/firebase';
 
@@ -52,6 +51,8 @@ const DEFAULT_PLAYER: PlayerProfile = {
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const currentUserRef = useRef<User | null>(null);
+
   const [currentTab, setCurrentTab] = useState<'status' | 'inventory'>('status');
   const [syncStatus, setSyncStatus] = useState<'synced' | 'saving' | 'offline' | 'local'>('local');
 
@@ -63,6 +64,8 @@ export default function App() {
     } catch {}
     return DEFAULT_PLAYER;
   });
+  const playerRef = useRef(player);
+  playerRef.current = player;
 
   // Estado das Missões
   const [quests, setQuests] = useState<Quest[]>(() => {
@@ -76,6 +79,8 @@ export default function App() {
       userId: 'local_hunter',
     }));
   });
+  const questsRef = useRef(quests);
+  questsRef.current = quests;
 
   // Modais
   const [isRedemptionOpen, setIsRedemptionOpen] = useState(false);
@@ -102,7 +107,8 @@ export default function App() {
 
   // Debounced cloud sync ref
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const isInitialAuthCheck = useRef(true);
+  const isSyncConflictOpenRef = useRef(isSyncConflictOpen);
+  isSyncConflictOpenRef.current = isSyncConflictOpen;
 
   // Sincronização LocalStorage constante
   useEffect(() => {
@@ -117,76 +123,69 @@ export default function App() {
     } catch {}
   }, [quests]);
 
-  // Listener de Autenticação Firebase & Detecção Multi-Dispositivo
-  useEffect(() => {
-    const performInitialSync = async (user: User) => {
-      try {
-        if (!navigator.onLine) {
-          setSyncStatus('offline');
-          return;
-        }
-
-        setSyncStatus('saving');
-        const cloudSave = await fetchCloudSave(user.uid);
-        
-        if (cloudSave && cloudSave.player) {
-          const localRaw = localStorage.getItem('solo_hunter_profile');
-          const localParsed = localRaw ? JSON.parse(localRaw) : DEFAULT_PLAYER;
-          
-          const isLocalDefault = localParsed.level === 1 && localParsed.currentXp === 0 && localParsed.name === 'Sung Jin-Woo';
-          const isDifferent = 
-            cloudSave.player.level !== localParsed.level ||
-            cloudSave.player.currentXp !== localParsed.currentXp ||
-            cloudSave.player.name !== localParsed.name ||
-            (cloudSave.quests && cloudSave.quests.length !== quests.length);
-
-          if (isLocalDefault && !isDifferent) {
-            setPlayer({ ...cloudSave.player, userId: user.uid });
-            if (cloudSave.quests && cloudSave.quests.length > 0) {
-              setQuests(cloudSave.quests);
-            }
-            setSyncStatus('synced');
-          } else if (isDifferent || isInitialAuthCheck.current) {
-            setPendingCloudData(cloudSave);
-            setIsSyncConflictOpen(true);
-            setSyncStatus('synced');
-          } else {
-            setSyncStatus('synced');
-          }
-        } else {
-          // Salva local para a nuvem se online
-          if (navigator.onLine) {
-            await saveCloudSave(user.uid, { player, quests });
-            setSyncStatus('synced');
-          } else {
-            setSyncStatus('offline');
-          }
-        }
-      } catch (err) {
-        if (isOfflineError(err)) {
-          setSyncStatus('offline');
-        } else {
-          console.warn('Sincronização adiada (offline ou rede indisponível):', err);
-          setSyncStatus('offline');
-        }
-      } finally {
-        isInitialAuthCheck.current = false;
+  // Executa o sync inicial ao autenticar (protegido contra loops)
+  const performInitialSync = useCallback(async (user: User) => {
+    try {
+      if (!navigator.onLine) {
+        setSyncStatus('offline');
+        return;
       }
-    };
 
+      setSyncStatus('saving');
+      const cloudSave = await fetchCloudSave(user.uid);
+
+      if (cloudSave && cloudSave.player) {
+        const currentLocal = playerRef.current;
+        const currentQuests = questsRef.current;
+
+        const isLocalDefault = currentLocal.level === 1 && currentLocal.currentXp === 0 && currentLocal.name === 'Sung Jin-Woo';
+        const isDifferent = 
+          cloudSave.player.level !== currentLocal.level ||
+          cloudSave.player.currentXp !== currentLocal.currentXp ||
+          cloudSave.player.name !== currentLocal.name ||
+          (cloudSave.quests && cloudSave.quests.length !== currentQuests.length);
+
+        if (isLocalDefault && !isDifferent) {
+          // Ambos padrão
+          setSyncStatus('synced');
+        } else if (isDifferent) {
+          // Conflito ou novo dispositivo: exibe modal para o usuário decidir
+          setPendingCloudData(cloudSave);
+          setIsSyncConflictOpen(true);
+          setSyncStatus('synced');
+        } else {
+          setSyncStatus('synced');
+        }
+      } else {
+        // Nuvem sem save: sobe dados locais atuais para criar o primeiro backup
+        await saveCloudSave(user.uid, {
+          player: playerRef.current,
+          quests: questsRef.current,
+        });
+        setSyncStatus('synced');
+      }
+    } catch (err) {
+      console.warn('Sync inicial não pôde ser completado, mantendo dados locais:', err);
+      setSyncStatus('offline');
+    }
+  }, []);
+
+  // Listener de Autenticação Firebase (Executado apenas 1 vez na montagem)
+  useEffect(() => {
     const unsubscribe = subscribeToAuth((user) => {
       setCurrentUser(user);
+      currentUserRef.current = user;
+
       if (user) {
         performInitialSync(user);
       } else {
         setSyncStatus('local');
-        isInitialAuthCheck.current = false;
       }
     });
 
     const handleOnline = () => {
-      if (currentUser) {
-        performInitialSync(currentUser);
+      if (currentUserRef.current) {
+        performInitialSync(currentUserRef.current);
       }
     };
 
@@ -202,11 +201,12 @@ export default function App() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [currentUser]);
+  }, [performInitialSync]);
 
   // Salva no Firestore de forma consolidada e espaçada (debounce) para nunca estourar cotas
   const triggerDebouncedSync = (updatedPlayer: PlayerProfile, updatedQuests?: Quest[]) => {
-    if (!currentUser || isSyncConflictOpen) return;
+    const activeUser = currentUserRef.current;
+    if (!activeUser || isSyncConflictOpenRef.current) return;
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
 
     if (!navigator.onLine) {
@@ -217,18 +217,14 @@ export default function App() {
     setSyncStatus('saving');
     syncTimeoutRef.current = setTimeout(async () => {
       try {
-        await saveCloudSave(currentUser.uid, {
+        await saveCloudSave(activeUser.uid, {
           player: updatedPlayer,
-          quests: updatedQuests || quests,
+          quests: updatedQuests || questsRef.current,
         });
         setSyncStatus('synced');
       } catch (err) {
-        if (isOfflineError(err)) {
-          setSyncStatus('offline');
-        } else {
-          console.warn('Falha transitória ao sincronizar com Firestore:', err);
-          setSyncStatus('offline');
-        }
+        console.warn('Debounced sync mantido em cache local:', err);
+        setSyncStatus('offline');
       }
     }, 2500);
   };
@@ -258,33 +254,32 @@ export default function App() {
 
   // Escolha 2: Manter dados deste Dispositivo (Sobe para a Nuvem)
   const handleChooseLocalSave = async () => {
-    if (!currentUser) return;
+    const activeUser = currentUserRef.current;
+    if (!activeUser) return;
     try {
       setSyncStatus('saving');
-      await saveCloudSave(currentUser.uid, { player, quests });
+      await saveCloudSave(activeUser.uid, { player, quests });
       setSyncStatus('synced');
       setIsSyncConflictOpen(false);
       setPendingCloudData(null);
       soundEffects.playLevelUp();
     } catch (err) {
-      if (isOfflineError(err)) {
-        setSyncStatus('offline');
-      } else {
-        console.warn('Erro ao enviar dados locais para a nuvem:', err);
-        setSyncStatus('offline');
-      }
+      console.warn('Erro ao enviar dados locais para a nuvem:', err);
+      setSyncStatus('offline');
+      setIsSyncConflictOpen(false);
     }
   };
 
   // Forçar Baixar da Nuvem manualmente pelo modal de Backup
   const handleForcePullFromCloud = async () => {
-    if (!currentUser) return;
+    const activeUser = currentUserRef.current;
+    if (!activeUser) return;
     setSyncStatus('saving');
-    const cloudSave = await fetchCloudSave(currentUser.uid);
+    const cloudSave = await fetchCloudSave(activeUser.uid);
     if (!cloudSave || !cloudSave.player) {
       throw new Error('Nenhum save encontrado na nuvem para esta conta.');
     }
-    const downloadedPlayer = { ...cloudSave.player, userId: currentUser.uid };
+    const downloadedPlayer = { ...cloudSave.player, userId: activeUser.uid };
     const downloadedQuests = cloudSave.quests || [];
     setPlayer(downloadedPlayer);
     setQuests(downloadedQuests);
@@ -297,9 +292,10 @@ export default function App() {
 
   // Forçar Enviar para Nuvem manualmente pelo modal de Backup
   const handleForceSyncToCloud = async () => {
-    if (!currentUser) return;
+    const activeUser = currentUserRef.current;
+    if (!activeUser) return;
     setSyncStatus('saving');
-    await saveCloudSave(currentUser.uid, { player, quests });
+    await saveCloudSave(activeUser.uid, { player, quests });
     setSyncStatus('synced');
   };
 
@@ -314,7 +310,7 @@ export default function App() {
     return 'E';
   };
 
-  // Completar Missão (com trava de ciclo anti-repetição)
+  // Completar Missão
   const handleToggleQuest = (questId: string) => {
     const quest = quests.find((q) => q.id === questId);
     if (!quest) return;
@@ -397,7 +393,7 @@ export default function App() {
     triggerDebouncedSync(updatedPlayer, updatedQuests);
   };
 
-  // Renovar Ciclo Diário (Destrava as missões para o novo dia)
+  // Renovar Ciclo Diário
   const handleRenewDay = () => {
     const completedCount = quests.filter((q) => q.isCompleted).length;
     const isSuccessDay = completedCount >= 3;
@@ -588,6 +584,7 @@ export default function App() {
       soundEffects.playSystemBeep();
       await logoutUser();
       setCurrentUser(null);
+      currentUserRef.current = null;
       setSyncStatus('local');
     } catch (err) {
       console.error('Falha ao desconectar:', err);
@@ -623,10 +620,11 @@ export default function App() {
 
   // Adicionar Nova Missão
   const handleAddQuest = (newQuestData: Omit<Quest, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => {
+    const activeUser = currentUserRef.current;
     const newQuest: Quest = {
       ...newQuestData,
       id: `quest_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      userId: currentUser?.uid || 'local_hunter',
+      userId: activeUser?.uid || 'local_hunter',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -646,7 +644,7 @@ export default function App() {
   return (
     <div className="min-h-screen solo-leveling-bg text-slate-100 flex flex-col font-sans scanline-effect">
       
-      {/* Top Bar seguindo o contrato oficial */}
+      {/* Top Bar com indicador de Sync sem travamentos */}
       <TopBar
         currentTab={currentTab}
         setCurrentTab={setCurrentTab}
@@ -664,7 +662,7 @@ export default function App() {
         syncStatus={syncStatus}
       />
 
-      {/* Main Viewport com padding inferior seguro para a barra mobile */}
+      {/* Main Viewport */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-5 sm:py-8 pb-28 md:pb-8 space-y-6">
         
         {currentTab === 'status' && (
@@ -739,7 +737,7 @@ export default function App() {
 
       <LootBoxModal
         isOpen={isLootBoxOpen}
-        onClose={() => setIsLootBoxOpen(false)}
+        onClose={() => setIsLevelUpOpen(false)}
         onClaimItem={handleClaimLoot}
         availableBoxes={player.lootBoxesAvailable}
         onOpenInventory={() => setCurrentTab('inventory')}

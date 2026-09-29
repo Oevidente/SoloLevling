@@ -84,6 +84,22 @@ export const isFirebaseConfigured = Boolean(
   activeConfig.projectId !== 'MY_PROJECT_ID'
 );
 
+// Helper para evitar bloqueios infinitos nas requisições do Firestore
+export function withTimeout<T>(promise: Promise<T>, timeoutMs = 5000, fallbackVal?: T): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve, reject) => {
+      setTimeout(() => {
+        if (fallbackVal !== undefined) {
+          resolve(fallbackVal);
+        } else {
+          reject(new Error('TIMEOUT_EXCEEDED: Servidor demorou para responder. Operação mantida localmente.'));
+        }
+      }, timeoutMs);
+    }),
+  ]);
+}
+
 // Inicialização segura do Firebase
 let appInstance: any = null;
 let dbInstance: any = null;
@@ -105,8 +121,15 @@ if (isFirebaseConfigured) {
       appInstance = getApp();
     }
 
-    if (activeConfig.firestoreDatabaseId && activeConfig.firestoreDatabaseId !== '(default)') {
-      dbInstance = getFirestore(appInstance, activeConfig.firestoreDatabaseId);
+    // A base padrão no Firebase Firestore é sempre (default).
+    // Previne erros ao tentar conectar a IDs inválidos que deixam o cliente offline.
+    const customDb = activeConfig.firestoreDatabaseId;
+    if (customDb && customDb !== '(default)' && !customDb.startsWith('ai-studio-')) {
+      try {
+        dbInstance = getFirestore(appInstance, customDb);
+      } catch {
+        dbInstance = getFirestore(appInstance);
+      }
     } else {
       dbInstance = getFirestore(appInstance);
     }
@@ -144,6 +167,7 @@ export function isOfflineError(error: unknown): boolean {
     code === 'unavailable' ||
     code === 'failed-precondition' ||
     msg.includes('client is offline') ||
+    msg.includes('TIMEOUT_EXCEEDED') ||
     msg.includes('network') ||
     msg.includes('offline') ||
     (typeof navigator !== 'undefined' && !navigator.onLine)
@@ -155,11 +179,11 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   const errMsg = error instanceof Error ? error.message : String(error);
   
   if (isOffline) {
-    console.info(`[Firestore Sync: Offline] Operação ${operationType} em ${path || 'documento'}: aguardando conexão ativa.`);
+    console.info(`[Firestore: Offline/Timeout] Operação ${operationType} em ${path || 'doc'}. Usando cache local.`);
     return;
   }
   
-  console.warn(`[Firestore Sync: Atenção] Operação ${operationType} em ${path || 'documento'}:`, errMsg);
+  console.warn(`[Firestore: Aviso] Operação ${operationType} em ${path || 'doc'}:`, errMsg);
 }
 
 // ==========================================
@@ -212,23 +236,23 @@ export function subscribeToAuth(callback: (user: User | null) => void) {
 
 /**
  * Busca o save consolidado do jogador na nuvem (documento único users/{userId}/game/data)
+ * Com proteção de timeout de 4.5 segundos para NUNCA travar carregando infinitamente.
  */
 export async function fetchCloudSave(userId: string): Promise<GameSaveData | null> {
   if (!db) return null;
   const path = `users/${userId}/game/data`;
   try {
-    // 1. Tenta buscar no documento consolidado moderno
     const gameDocRef = doc(db, 'users', userId, 'game', 'data');
-    const snap = await getDoc(gameDocRef);
-    if (snap.exists()) {
+    const snap = await withTimeout(getDoc(gameDocRef), 4500);
+    if (snap && snap.exists()) {
       const data = snap.data() as GameSaveData;
       return data;
     }
 
-    // 2. Fallback de compatibilidade caso o save antigo estivesse solto em users/{userId}
+    // Fallback legado com timeout curto
     const legacyDocRef = doc(db, 'users', userId);
-    const legacySnap = await getDoc(legacyDocRef);
-    if (legacySnap.exists()) {
+    const legacySnap = await withTimeout(getDoc(legacyDocRef), 3000);
+    if (legacySnap && legacySnap.exists()) {
       const legacyData = legacySnap.data() as any;
       if (legacyData.level || legacyData.stats) {
         const legacyQuests = await loadQuestsFromFirestore(userId);
@@ -250,6 +274,7 @@ export async function fetchCloudSave(userId: string): Promise<GameSaveData | nul
 
 /**
  * Salva o jogo completo na nuvem em 1 único documento (máxima economia de cota)
+ * Com proteção de timeout para nunca travar a aplicação.
  */
 export async function saveCloudSave(userId: string, data: { player: PlayerProfile; quests: Quest[] }): Promise<void> {
   if (!db) return;
@@ -266,18 +291,18 @@ export async function saveCloudSave(userId: string, data: { player: PlayerProfil
     };
 
     const gameDocRef = doc(db, 'users', userId, 'game', 'data');
-    await setDoc(gameDocRef, saveData);
+    await withTimeout(setDoc(gameDocRef, saveData), 5000);
 
-    // Atualiza resumo básico no nó do usuário para metadados rápidos
+    // Resumo de cabeçalho
     const userDocRef = doc(db, 'users', userId);
-    await setDoc(userDocRef, {
+    await withTimeout(setDoc(userDocRef, {
       userId,
       name: data.player.name,
       level: data.player.level,
       hunterRank: data.player.hunterRank,
       currentXp: data.player.currentXp,
       updatedAt: saveData.updatedAt,
-    }, { merge: true });
+    }, { merge: true }), 3000).catch(() => {});
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -297,11 +322,11 @@ export async function savePlayerToFirestore(userId: string, profile: PlayerProfi
   const path = `users/${userId}`;
   try {
     const docRef = doc(db, 'users', userId);
-    await setDoc(docRef, {
+    await withTimeout(setDoc(docRef, {
       ...profile,
       userId,
       updatedAt: new Date().toISOString(),
-    }, { merge: true });
+    }, { merge: true }), 4000);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -312,9 +337,9 @@ export async function loadQuestsFromFirestore(userId: string): Promise<Quest[]> 
   const path = `users/${userId}/quests`;
   try {
     const colRef = collection(db, 'users', userId, 'quests');
-    const snap = await getDocs(colRef);
+    const snap = await withTimeout(getDocs(colRef), 4000);
     const quests: Quest[] = [];
-    snap.forEach((docItem) => {
+    snap?.forEach((docItem: any) => {
       quests.push({ ...docItem.data(), id: docItem.id } as Quest);
     });
     return quests;
@@ -337,7 +362,7 @@ export async function batchSaveQuestsToFirestore(userId: string, quests: Quest[]
         updatedAt: new Date().toISOString(),
       }, { merge: true });
     });
-    await batch.commit();
+    await withTimeout(batch.commit(), 5000);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -348,7 +373,7 @@ export async function deleteQuestFromFirestore(userId: string, questId: string):
   const path = `users/${userId}/quests/${questId}`;
   try {
     const docRef = doc(db, 'users', userId, 'quests', questId);
-    await deleteDoc(docRef);
+    await withTimeout(deleteDoc(docRef), 4000);
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
   }

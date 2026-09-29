@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User } from 'firebase/auth';
-import { Volume2, VolumeX, LogIn, LogOut, Shield, Gift, LayoutDashboard, Package, Share2, User as UserIcon } from 'lucide-react';
+import { Volume2, VolumeX, LogIn, LogOut, Shield, Gift, LayoutDashboard, Package, Share2, User as UserIcon, Cloud } from 'lucide-react';
 import { soundEffects } from '../services/soundEffects';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -15,6 +15,7 @@ interface TopBarProps {
   user: User | null;
   onLogin: () => void;
   onLogout: () => void;
+  onOpenCloudBackup: () => void;
   isMuted: boolean;
   onToggleMute: () => void;
 }
@@ -30,6 +31,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   user,
   onLogin,
   onLogout,
+  onOpenCloudBackup,
   isMuted,
   onToggleMute,
 }) => {
@@ -161,6 +163,19 @@ export const TopBar: React.FC<TopBarProps> = ({
               {isMuted ? <VolumeX className="w-4 h-4 text-slate-500" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
             </button>
 
+            {/* Botão Backup / Nuvem */}
+            <button
+              onClick={() => {
+                soundEffects.playSystemBeep();
+                onOpenCloudBackup();
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-emerald-300 hover:text-emerald-100 bg-emerald-950/30 hover:bg-emerald-900/40 border border-emerald-500/40 rounded-lg transition-colors cursor-pointer"
+              title="Gerenciar Backup em Arquivo e Conexão Firebase/Google"
+            >
+              <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Backup & Nuvem</span>
+            </button>
+
             {/* Auth Google */}
             {user ? (
               <div className="flex items-center gap-2">
@@ -189,9 +204,10 @@ export const TopBar: React.FC<TopBarProps> = ({
               <button
                 onClick={onLogin}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-emerald-300 bg-emerald-950/40 border border-emerald-400/60 rounded-lg hover:bg-emerald-500/25 hover:border-emerald-400 transition-all shadow-[0_0_15px_rgba(34,197,94,0.2)] whitespace-nowrap cursor-pointer"
+                title="Fazer Login com Google"
               >
                 <LogIn className="w-3.5 h-3.5" />
-                <span>Salvar Nuvem</span>
+                <span>Entrar (Google)</span>
               </button>
             )}
           </div>
@@ -294,6 +310,16 @@ export const TopBar: React.FC<TopBarProps> = ({
                     <button
                       onClick={() => {
                         setShowMobileProfileMenu(false);
+                        onOpenCloudBackup();
+                      }}
+                      className="w-full mb-1.5 flex items-center gap-2 px-2.5 py-1.5 text-xs font-bold text-emerald-300 hover:text-emerald-100 bg-emerald-950/50 hover:bg-emerald-900/60 border border-emerald-500/40 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <Cloud className="w-3.5 h-3.5" />
+                      <span>Backup & Nuvem</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowMobileProfileMenu(false);
                         onLogout();
                       }}
                       className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs font-bold text-rose-300 hover:text-rose-200 bg-rose-950/40 hover:bg-rose-950/60 border border-rose-500/40 rounded-lg transition-colors cursor-pointer"
@@ -305,14 +331,24 @@ export const TopBar: React.FC<TopBarProps> = ({
                 )}
               </div>
             ) : (
-              <button
-                onClick={onLogin}
-                className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-emerald-300 bg-emerald-950/50 border border-emerald-400/60 rounded-lg active:scale-95 transition-all shadow-[0_0_10px_rgba(34,197,94,0.2)] whitespace-nowrap cursor-pointer"
-                title="Salvar progresso na nuvem via Google"
-              >
-                <LogIn className="w-3 h-3" />
-                <span>Salvar</span>
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={onOpenCloudBackup}
+                  className="p-1.5 rounded-lg bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 active:scale-95 transition-all"
+                  title="Backup & Configuração da Nuvem"
+                  aria-label="Abrir Backup & Nuvem"
+                >
+                  <Cloud className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={onLogin}
+                  className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-emerald-300 bg-emerald-950/50 border border-emerald-400/60 rounded-lg active:scale-95 transition-all shadow-[0_0_10px_rgba(34,197,94,0.2)] whitespace-nowrap cursor-pointer"
+                  title="Fazer Login Google"
+                >
+                  <LogIn className="w-3 h-3" />
+                  <span>Entrar</span>
+                </button>
+              </div>
             )}
 
           </div>

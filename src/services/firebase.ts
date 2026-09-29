@@ -17,38 +17,104 @@ import {
   getDocs,
   writeBatch,
   deleteDoc,
-  getDocFromServer,
 } from 'firebase/firestore';
-import rawConfig from '../../firebase-applet-config.json';
 import { PlayerProfile, Quest } from '../types/hunter';
 
-// Mescla variáveis de ambiente do Vite (GitHub Pages / Secrets) com a configuração local
-const firebaseConfig = {
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || rawConfig.projectId,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || rawConfig.appId,
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || rawConfig.apiKey,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || rawConfig.authDomain,
-  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || rawConfig.firestoreDatabaseId,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || rawConfig.storageBucket,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || rawConfig.messagingSenderId,
-};
+export interface FirebaseCustomConfig {
+  projectId?: string;
+  appId?: string;
+  apiKey?: string;
+  authDomain?: string;
+  firestoreDatabaseId?: string;
+  storageBucket?: string;
+  messagingSenderId?: string;
+}
 
-// Inicialização Firebase
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const auth = getAuth(app);
-export const googleProvider = new GoogleAuthProvider();
+const LOCAL_STORAGE_FIREBASE_KEY = 'sololeveling_custom_firebase_config';
 
-async function testConnection() {
+export function getStoredFirebaseConfig(): FirebaseCustomConfig | null {
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn("Verifique a conexão de rede com o Firebase.");
+    const raw = localStorage.getItem(LOCAL_STORAGE_FIREBASE_KEY);
+    if (raw) {
+      return JSON.parse(raw);
     }
+  } catch (err) {
+    console.warn('Erro ao ler custom firebase config do localStorage:', err);
+  }
+  return null;
+}
+
+export function saveStoredFirebaseConfig(config: FirebaseCustomConfig) {
+  try {
+    localStorage.setItem(LOCAL_STORAGE_FIREBASE_KEY, JSON.stringify(config));
+  } catch (err) {
+    console.error('Erro ao salvar custom firebase config no localStorage:', err);
   }
 }
-testConnection();
+
+export function clearStoredFirebaseConfig() {
+  localStorage.removeItem(LOCAL_STORAGE_FIREBASE_KEY);
+}
+
+// Resolução de credenciais em cascata: LocalStorage -> Vite env vars
+const userCustom = getStoredFirebaseConfig();
+
+const activeConfig: FirebaseCustomConfig = {
+  projectId: userCustom?.projectId || import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
+  appId: userCustom?.appId || import.meta.env.VITE_FIREBASE_APP_ID || '',
+  apiKey: userCustom?.apiKey || import.meta.env.VITE_FIREBASE_API_KEY || '',
+  authDomain: userCustom?.authDomain || import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
+  firestoreDatabaseId: userCustom?.firestoreDatabaseId || import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || '',
+  storageBucket: userCustom?.storageBucket || import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
+  messagingSenderId: userCustom?.messagingSenderId || import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+};
+
+export const isFirebaseConfigured = Boolean(
+  activeConfig.apiKey &&
+  activeConfig.apiKey !== 'MY_FIREBASE_API_KEY' &&
+  activeConfig.apiKey.length > 5 &&
+  activeConfig.projectId &&
+  activeConfig.projectId !== 'MY_PROJECT_ID'
+);
+
+// Inicialização segura do Firebase (evita crash se as chaves não tiverem sido configuradas ainda)
+let appInstance = null;
+let dbInstance = null;
+let authInstance = null;
+let googleProviderInstance = null;
+
+if (isFirebaseConfigured) {
+  try {
+    appInstance = initializeApp({
+      projectId: activeConfig.projectId,
+      appId: activeConfig.appId,
+      apiKey: activeConfig.apiKey,
+      authDomain: activeConfig.authDomain || `${activeConfig.projectId}.firebaseapp.com`,
+      storageBucket: activeConfig.storageBucket,
+      messagingSenderId: activeConfig.messagingSenderId,
+    });
+
+    if (activeConfig.firestoreDatabaseId && activeConfig.firestoreDatabaseId !== '(default)') {
+      dbInstance = getFirestore(appInstance, activeConfig.firestoreDatabaseId);
+    } else {
+      dbInstance = getFirestore(appInstance);
+    }
+
+    authInstance = getAuth(appInstance);
+    googleProviderInstance = new GoogleAuthProvider();
+    googleProviderInstance.setCustomParameters({
+      prompt: 'select_account',
+    });
+  } catch (err) {
+    console.warn('Erro ao inicializar Firebase:', err);
+  }
+}
+
+export const app = appInstance;
+export const db = dbInstance as any;
+export const auth = authInstance as any;
+export const googleProvider = googleProviderInstance as any;
+export const currentFirebaseConfig = activeConfig;
 
 export enum OperationType {
   CREATE = 'create',
@@ -89,16 +155,31 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 
 // Funções de Autenticação
 export async function loginWithGoogle(): Promise<User | null> {
+  if (!auth || !googleProvider) {
+    throw new Error('CONFIG_REQUIRED: As chaves do Firebase ainda não foram configuradas. Abra as Configurações de Conexão no topo.');
+  }
   try {
     const result = await signInWithPopup(auth, googleProvider);
     return result.user;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Google Sign In Error:', error);
+    if (error?.code === 'auth/unauthorized-domain') {
+      throw new Error(`DOMINIO_NAO_AUTORIZADO: Este domínio (${window.location.hostname}) não está na lista de "Authorized domains" do seu Firebase Console (Authentication > Settings > Authorized domains).`);
+    } else if (error?.code === 'auth/popup-blocked') {
+      throw new Error('POPUP_BLOQUEADO: O navegador bloqueou o pop-up de login do Google. Permita pop-ups para este site e tente novamente.');
+    } else if (error?.code === 'auth/cancelled-popup-request' || error?.code === 'auth/popup-closed-by-user') {
+      throw new Error('POPUP_FECHADO: A janela de login foi fechada antes de concluir.');
+    } else if (error?.code === 'auth/operation-not-allowed') {
+      throw new Error('PROVEDOR_DESATIVADO: O provedor Google não foi ativado no Firebase Console (Authentication > Sign-in method > Google).');
+    }
     throw error;
   }
 }
 
 export async function loginAnonymously(): Promise<User | null> {
+  if (!auth) {
+    throw new Error('CONFIG_REQUIRED: Firebase não configurado.');
+  }
   try {
     const result = await signInAnonymously(auth);
     return result.user;
@@ -109,6 +190,7 @@ export async function loginAnonymously(): Promise<User | null> {
 }
 
 export async function logoutUser(): Promise<void> {
+  if (!auth) return;
   try {
     await signOut(auth);
   } catch (error) {
@@ -118,6 +200,10 @@ export async function logoutUser(): Promise<void> {
 }
 
 export function subscribeToAuth(callback: (user: User | null) => void) {
+  if (!auth) {
+    callback(null);
+    return () => {};
+  }
   return onAuthStateChanged(auth, callback);
 }
 
@@ -127,6 +213,7 @@ export function subscribeToAuth(callback: (user: User | null) => void) {
  * Carrega perfil do Caçador no Firestore
  */
 export async function loadPlayerFromFirestore(userId: string): Promise<PlayerProfile | null> {
+  if (!db) return null;
   const path = `users/${userId}`;
   try {
     const docRef = doc(db, 'users', userId);
@@ -145,6 +232,7 @@ export async function loadPlayerFromFirestore(userId: string): Promise<PlayerPro
  * Salva perfil do Caçador no Firestore
  */
 export async function savePlayerToFirestore(userId: string, profile: PlayerProfile): Promise<void> {
+  if (!db) return;
   const path = `users/${userId}`;
   try {
     const docRef = doc(db, 'users', userId);
@@ -162,6 +250,7 @@ export async function savePlayerToFirestore(userId: string, profile: PlayerProfi
  * Carrega missões do Caçador no Firestore
  */
 export async function loadQuestsFromFirestore(userId: string): Promise<Quest[]> {
+  if (!db) return [];
   const path = `users/${userId}/quests`;
   try {
     const colRef = collection(db, 'users', userId, 'quests');
@@ -181,6 +270,7 @@ export async function loadQuestsFromFirestore(userId: string): Promise<Quest[]> 
  * Salva ou atualiza uma única missão no Firestore
  */
 export async function saveQuestToFirestore(userId: string, quest: Quest): Promise<void> {
+  if (!db) return;
   const path = `users/${userId}/quests/${quest.id}`;
   try {
     const docRef = doc(db, 'users', userId, 'quests', quest.id);
@@ -198,6 +288,7 @@ export async function saveQuestToFirestore(userId: string, quest: Quest): Promis
  * Salva lote de missões no Firestore (otimizado via Batch write)
  */
 export async function batchSaveQuestsToFirestore(userId: string, quests: Quest[]): Promise<void> {
+  if (!db) return;
   const path = `users/${userId}/quests`;
   try {
     const batch = writeBatch(db);
@@ -219,6 +310,7 @@ export async function batchSaveQuestsToFirestore(userId: string, quests: Quest[]
  * Deleta uma missão no Firestore
  */
 export async function deleteQuestFromFirestore(userId: string, questId: string): Promise<void> {
+  if (!db) return;
   const path = `users/${userId}/quests/${questId}`;
   try {
     const docRef = doc(db, 'users', userId, 'quests', questId);

@@ -24,6 +24,7 @@ import { InventoryModal } from './components/InventoryModal';
 import { NewQuestModal } from './components/NewQuestModal';
 import { CycleReportModal } from './components/CycleReportModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { CloudBackupModal } from './components/CloudBackupModal';
 
 const DEFAULT_PLAYER: PlayerProfile = {
   userId: 'local_hunter',
@@ -83,6 +84,8 @@ export default function App() {
   const [isLevelUpOpen, setIsLevelUpOpen] = useState(false);
   const [previousLevel, setPreviousLevel] = useState(1);
   const [isCycleReportOpen, setIsCycleReportOpen] = useState(false);
+  const [isCloudBackupOpen, setIsCloudBackupOpen] = useState(false);
+  const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
 
   // Áudio
   const [isMuted, setIsMuted] = useState(() => soundEffects.getMuted());
@@ -391,10 +394,14 @@ export default function App() {
   // Login com Google
   const handleLogin = async () => {
     try {
+      setAuthErrorMessage(null);
       soundEffects.playSystemBeep();
       await loginWithGoogle();
-    } catch (err) {
-      console.error('Falha no login com Google:', err);
+    } catch (err: any) {
+      const msg = err?.message || 'Falha ao autenticar com o Google.';
+      setAuthErrorMessage(msg);
+      // Abre o modal diretamente na aba de configuração do Firebase para o usuário colar suas chaves ou usar backup manual
+      setIsCloudBackupOpen(true);
     }
   };
 
@@ -464,6 +471,7 @@ export default function App() {
         user={currentUser}
         onLogin={handleLogin}
         onLogout={handleLogout}
+        onOpenCloudBackup={() => setIsCloudBackupOpen(true)}
         isMuted={isMuted}
         onToggleMute={handleToggleMute}
       />
@@ -549,6 +557,22 @@ export default function App() {
         onClose={() => setIsCycleReportOpen(false)}
         player={player}
         quests={quests}
+      />
+
+      <CloudBackupModal
+        isOpen={isCloudBackupOpen}
+        onClose={() => setIsCloudBackupOpen(false)}
+        player={player}
+        quests={quests}
+        onImportData={(importedPlayer, importedQuests) => {
+          setPlayer(importedPlayer);
+          setQuests(importedQuests);
+          triggerDebouncedSync(importedPlayer, importedQuests);
+        }}
+        onTriggerGoogleLogin={handleLogin}
+        isLoggedIn={Boolean(currentUser)}
+        userEmail={currentUser?.email}
+        authError={authErrorMessage}
       />
 
     </div>

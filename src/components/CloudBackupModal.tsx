@@ -22,6 +22,7 @@ import {
   isFirebaseConfigured,
   currentFirebaseConfig,
   formatFirestoreError,
+  testFirestoreConnection,
   FirebaseCustomConfig 
 } from '../services/firebase';
 import { PlayerProfile, Quest } from '../types/hunter';
@@ -80,6 +81,8 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
   const [copyRulesFeedback, setCopyRulesFeedback] = useState(false);
   const [saveSuccessFeedback, setSaveSuccessFeedback] = useState(false);
   const [importFeedback, setImportFeedback] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
+  const [isTestingConn, setIsTestingConn] = useState(false);
+  const [testConnResult, setTestConnResult] = useState<{ success: boolean; message: string } | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -210,10 +213,33 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
   };
 
   const copyRules = () => {
-    const rulesText = `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /users/{userId}/{allPaths=**} {\n      allow read, write: if request.auth != null && request.auth.uid == userId;\n    }\n    match /users_by_email/{allPaths=**} {\n      allow read, write: if request.auth != null;\n    }\n  }\n}`;
+    const rulesText = `rules_version = '2';\n\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /users/{userId} {\n      allow read, write: if request.auth != null && request.auth.uid == userId;\n      match /{allPaths=**} {\n        allow read, write: if request.auth != null && request.auth.uid == userId;\n      }\n    }\n  }\n}`;
     navigator.clipboard.writeText(rulesText);
     setCopyRulesFeedback(true);
     setTimeout(() => setCopyRulesFeedback(false), 2000);
+  };
+
+  const handleTestConnection = async () => {
+    setIsTestingConn(true);
+    setTestConnResult(null);
+    soundEffects.playSystemBeep();
+    try {
+      const res = await testFirestoreConnection(player.userId || 'hunter_user');
+      setTestConnResult(res);
+      if (res.success) {
+        soundEffects.playQuestComplete();
+      } else {
+        soundEffects.playAlertNotice();
+      }
+    } catch (err: any) {
+      setTestConnResult({
+        success: false,
+        message: formatFirestoreError(err),
+      });
+      soundEffects.playAlertNotice();
+    } finally {
+      setIsTestingConn(false);
+    }
   };
 
   return (
@@ -425,6 +451,30 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
                       </button>
                     </div>
 
+                    <button
+                      disabled={isTestingConn}
+                      onClick={handleTestConnection}
+                      className="w-full py-2 px-3 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-700/80 text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${isTestingConn ? 'animate-spin' : ''}`} />
+                      <span>{isTestingConn ? 'Testando Conexão...' : 'Testar Conexão Direta com Firestore'}</span>
+                    </button>
+
+                    {testConnResult && (
+                      <div className={`p-2.5 rounded-lg text-xs leading-relaxed flex items-start gap-2 ${
+                        testConnResult.success 
+                          ? 'bg-emerald-950/70 border border-emerald-500/40 text-emerald-300' 
+                          : 'bg-rose-950/70 border border-rose-500/40 text-rose-200'
+                      }`}>
+                        {testConnResult.success ? (
+                          <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                        ) : (
+                          <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                        )}
+                        <span>{testConnResult.message}</span>
+                      </div>
+                    )}
+
                     {cloudSyncMsg && (
                       <div className={`p-2.5 rounded-lg text-xs leading-relaxed ${
                         cloudSyncMsg.startsWith('✓') 
@@ -564,20 +614,33 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-slate-800/80 space-y-1.5 text-slate-400 text-[11px]">
-                  <p>
-                    <strong className="text-amber-300">Regras de Segurança do Firestore (Passo 5 - Aba "Regras"):</strong>
-                  </p>
+                <div className="pt-2 border-t border-slate-800/80 space-y-2 text-slate-400 text-[11px]">
+                  <div className="flex items-center justify-between">
+                    <strong className="text-amber-300">Regras do Firestore (Firebase Console &gt; Firestore &gt; Regras):</strong>
+                    <button
+                      onClick={copyRules}
+                      className="p-1 px-2.5 rounded bg-amber-950/60 hover:bg-amber-900/80 border border-amber-500/50 text-amber-200 text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                    >
+                      {copyRulesFeedback ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-amber-400" />}
+                      <span>{copyRulesFeedback ? 'Copiado!' : 'Copiar Regras'}</span>
+                    </button>
+                  </div>
+                  <pre className="p-2.5 rounded bg-black/80 border border-slate-800 font-mono text-[10px] text-emerald-300/90 overflow-x-auto leading-relaxed whitespace-pre">
+{`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      match /{allPaths=**} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+  }
+}`}
+                  </pre>
                   <p className="text-[10px] text-slate-400">
-                    Se o banco estiver em modo restrito, cole esta regra para permitir que sua conta autenticada grave o progresso:
+                    ⚠️ Se as regras estiverem bloqueando (<code className="text-rose-400">allow read, write: if false;</code>), o Firestore não responderá e gerará timeout. Cole e publique as regras acima.
                   </p>
-                  <button
-                    onClick={copyRules}
-                    className="p-1.5 px-3 rounded bg-amber-950/40 hover:bg-amber-900/60 border border-amber-500/50 text-amber-200 text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
-                  >
-                    {copyRulesFeedback ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-amber-400" />}
-                    <span>{copyRulesFeedback ? 'Regras Copiadas!' : 'Copiar Regras do Firestore'}</span>
-                  </button>
                 </div>
               </div>
 

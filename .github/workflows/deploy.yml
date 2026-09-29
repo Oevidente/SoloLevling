@@ -1,4 +1,4 @@
-name: Deploy System: Solo Leveling to GitHub Pages
+name: "Deploy System: Solo Leveling to GitHub Pages"
 
 on:
   push:
@@ -34,7 +34,25 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
+      - name: Setup Firebase Configuration
+        run: |
+          if [ ! -f firebase-applet-config.json ]; then
+            if [ -f firebase-applet-config.example.json ]; then
+              cp firebase-applet-config.example.json firebase-applet-config.json
+            else
+              echo '{"projectId":"","appId":"","apiKey":"","authDomain":"","firestoreDatabaseId":"","storageBucket":"","messagingSenderId":"","measurementId":"","oAuthClientId":"","recaptchaSiteKey":""}' > firebase-applet-config.json
+            fi
+          fi
+
       - name: Build Application
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_FIRESTORE_DATABASE_ID: ${{ secrets.VITE_FIREBASE_FIRESTORE_DATABASE_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
         run: |
           npm run build
           cp dist/index.html dist/404.html

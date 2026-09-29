@@ -1,0 +1,12 @@
+{
+  "projectId": "SEU_FIREBASE_PROJECT_ID",
+  "appId": "SEU_FIREBASE_APP_ID",
+  "apiKey": "SEU_FIREBASE_API_KEY",
+  "authDomain": "SEU_FIREBASE_PROJECT_ID.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-b3efa460-61f7-439d-a8f6-d6461c5d27b2",
+  "storageBucket": "SEU_FIREBASE_PROJECT_ID.firebasestorage.app",
+  "messagingSenderId": "SEU_MESSAGING_SENDER_ID",
+  "measurementId": "",
+  "oAuthClientId": "",
+  "recaptchaSiteKey": ""
+}

@@ -93,7 +93,7 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs = 5000, fallbackVa
         if (fallbackVal !== undefined) {
           resolve(fallbackVal);
         } else {
-          reject(new Error('TIMEOUT_EXCEEDED: Servidor demorou para responder. Operação mantida localmente.'));
+          reject(new Error('TIMEOUT_EXCEEDED: Operação com Firestore excedeu o tempo limite.'));
         }
       }, timeoutMs);
     }),
@@ -179,7 +179,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   const errMsg = error instanceof Error ? error.message : String(error);
   
   if (isOffline) {
-    console.info(`[Firestore: Offline/Timeout] Operação ${operationType} em ${path || 'doc'}. Usando cache local.`);
+    console.info(`[Firestore: Offline/Timeout] Operação ${operationType} em ${path || 'doc'}.`);
     return;
   }
   
@@ -231,30 +231,38 @@ export function subscribeToAuth(callback: (user: User | null) => void) {
 
 // ==========================================
 // SINCRONIZAÇÃO COMPLETA DE ALTA EFICIÊNCIA
-// Poupa cotas: 1 leitura ao abrir / 1 gravação por alteração debounced
+// Busca em múltiplos caminhos de compatibilidade (moderno, legado, email)
 // ==========================================
 
 /**
- * Busca o save consolidado do jogador na nuvem (documento único users/{userId}/game/data)
- * Com proteção de timeout de 4.5 segundos para NUNCA travar carregando infinitamente.
+ * Busca o save do jogador no Firestore.
+ * Verifica caminho moderno: users/{userId}/game/data
+ * Fallbacks de compatibilidade: users/{userId}, users/{email}, players/{userId}
  */
-export async function fetchCloudSave(userId: string): Promise<GameSaveData | null> {
+export async function fetchCloudSave(userId: string, userEmail?: string | null): Promise<GameSaveData | null> {
   if (!db) return null;
-  const path = `users/${userId}/game/data`;
+
+  // 1. Caminho moderno consolidado
   try {
     const gameDocRef = doc(db, 'users', userId, 'game', 'data');
-    const snap = await withTimeout(getDoc(gameDocRef), 4500);
+    const snap = await withTimeout(getDoc(gameDocRef), 4000);
     if (snap && snap.exists()) {
       const data = snap.data() as GameSaveData;
-      return data;
+      if (data && data.player) {
+        return data;
+      }
     }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, `users/${userId}/game/data`);
+  }
 
-    // Fallback legado com timeout curto
+  // 2. Caminho legado direto users/{userId}
+  try {
     const legacyDocRef = doc(db, 'users', userId);
-    const legacySnap = await withTimeout(getDoc(legacyDocRef), 3000);
+    const legacySnap = await withTimeout(getDoc(legacyDocRef), 3500);
     if (legacySnap && legacySnap.exists()) {
       const legacyData = legacySnap.data() as any;
-      if (legacyData.level || legacyData.stats) {
+      if (legacyData && (legacyData.level || legacyData.stats || legacyData.hunterRank)) {
         const legacyQuests = await loadQuestsFromFirestore(userId);
         return {
           player: legacyData as PlayerProfile,
@@ -264,17 +272,53 @@ export async function fetchCloudSave(userId: string): Promise<GameSaveData | nul
         };
       }
     }
-
-    return null;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.GET, path);
-    return null;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, `users/${userId}`);
   }
+
+  // 3. Caminho alternativo por email users/{userEmail}
+  if (userEmail) {
+    try {
+      const emailDocRef = doc(db, 'users', userEmail);
+      const emailSnap = await withTimeout(getDoc(emailDocRef), 3000);
+      if (emailSnap && emailSnap.exists()) {
+        const emailData = emailSnap.data() as any;
+        if (emailData && (emailData.level || emailData.stats)) {
+          const legacyQuests = await loadQuestsFromFirestore(userEmail);
+          return {
+            player: { ...emailData, userId },
+            quests: legacyQuests,
+            updatedAt: emailData.updatedAt || new Date().toISOString(),
+            version: 1,
+          };
+        }
+      }
+    } catch {}
+  }
+
+  // 4. Caminho legado players/{userId}
+  try {
+    const playerDocRef = doc(db, 'players', userId);
+    const playerSnap = await withTimeout(getDoc(playerDocRef), 2500);
+    if (playerSnap && playerSnap.exists()) {
+      const pData = playerSnap.data() as any;
+      if (pData && (pData.level || pData.stats)) {
+        return {
+          player: pData as PlayerProfile,
+          quests: [],
+          updatedAt: pData.updatedAt || new Date().toISOString(),
+          version: 1,
+        };
+      }
+    }
+  } catch {}
+
+  return null;
 }
 
 /**
- * Salva o jogo completo na nuvem em 1 único documento (máxima economia de cota)
- * Com proteção de timeout para nunca travar a aplicação.
+ * Salva o jogo completo na nuvem gravando em users/{userId}/game/data
+ * e sincronizando o nó raiz users/{userId} para máxima compatibilidade retroativa.
  */
 export async function saveCloudSave(userId: string, data: { player: PlayerProfile; quests: Quest[] }): Promise<void> {
   if (!db) return;
@@ -290,26 +334,25 @@ export async function saveCloudSave(userId: string, data: { player: PlayerProfil
       version: 2,
     };
 
+    // 1. Grava no caminho consolidado moderno
     const gameDocRef = doc(db, 'users', userId, 'game', 'data');
     await withTimeout(setDoc(gameDocRef, saveData), 5000);
 
-    // Resumo de cabeçalho
+    // 2. Grava no nó users/{userId} para retrocompatibilidade
     const userDocRef = doc(db, 'users', userId);
     await withTimeout(setDoc(userDocRef, {
+      ...data.player,
       userId,
-      name: data.player.name,
-      level: data.player.level,
-      hunterRank: data.player.hunterRank,
-      currentXp: data.player.currentXp,
       updatedAt: saveData.updatedAt,
-    }, { merge: true }), 3000).catch(() => {});
+    }, { merge: true }), 4000).catch(() => {});
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
+    throw error;
   }
 }
 
 // ==========================================
-// LEGACY HELPERS (Para compatibilidade retroativa)
+// LEGACY HELPERS
 // ==========================================
 
 export async function loadPlayerFromFirestore(userId: string): Promise<PlayerProfile | null> {

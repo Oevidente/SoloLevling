@@ -132,7 +132,7 @@ export default function App() {
       }
 
       setSyncStatus('saving');
-      const cloudSave = await fetchCloudSave(user.uid);
+      const cloudSave = await fetchCloudSave(user.uid, user.email);
 
       if (cloudSave && cloudSave.player) {
         const currentLocal = playerRef.current;
@@ -275,9 +275,9 @@ export default function App() {
     const activeUser = currentUserRef.current;
     if (!activeUser) return;
     setSyncStatus('saving');
-    const cloudSave = await fetchCloudSave(activeUser.uid);
+    const cloudSave = await fetchCloudSave(activeUser.uid, activeUser.email);
     if (!cloudSave || !cloudSave.player) {
-      throw new Error('Nenhum save encontrado na nuvem para esta conta.');
+      throw new Error('Nenhum save encontrado na nuvem para esta conta Google ainda. Como o salvamento anterior no GitHub estava apenas local, restaure seu arquivo JSON de backup na tela e clique em "Subir pra Nuvem" para sincronizar com todos os aparelhos!');
     }
     const downloadedPlayer = { ...cloudSave.player, userId: activeUser.uid };
     const downloadedQuests = cloudSave.quests || [];
@@ -288,6 +288,7 @@ export default function App() {
       localStorage.setItem('solo_hunter_quests', JSON.stringify(downloadedQuests));
     } catch {}
     setSyncStatus('synced');
+    soundEffects.playQuestComplete();
   };
 
   // Forçar Enviar para Nuvem manualmente pelo modal de Backup
@@ -295,8 +296,12 @@ export default function App() {
     const activeUser = currentUserRef.current;
     if (!activeUser) return;
     setSyncStatus('saving');
-    await saveCloudSave(activeUser.uid, { player, quests });
+    await saveCloudSave(activeUser.uid, {
+      player: playerRef.current,
+      quests: questsRef.current,
+    });
     setSyncStatus('synced');
+    soundEffects.playQuestComplete();
   };
 
   // Cálculo dinâmico de Rank

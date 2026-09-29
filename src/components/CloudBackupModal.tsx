@@ -362,7 +362,14 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
                 </div>
 
                 {isLoggedIn && (
-                  <div className="pt-2 space-y-2">
+                  <div className="pt-2 space-y-2.5">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 bg-slate-950/60 p-2 rounded-lg border border-slate-800">
+                      <span>Projeto Firebase Ativo:</span>
+                      <span className="font-mono text-emerald-400 font-bold">
+                        {currentFirebaseConfig.projectId || 'Padrão'}
+                      </span>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         disabled={isSyncingCloud}
@@ -373,14 +380,14 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
                             setCloudSyncMsg(null);
                             soundEffects.playSystemBeep();
                             await onForcePullFromCloud();
-                            setCloudSyncMsg('Dados baixados da nuvem com sucesso!');
+                            setCloudSyncMsg('✓ Dados baixados da nuvem e restaurados neste aparelho com sucesso!');
                           } catch (err: any) {
-                            setCloudSyncMsg(`Erro ao baixar: ${err?.message || 'Falha no Firestore'}`);
+                            setCloudSyncMsg(err?.message || 'Falha ao buscar dados na nuvem.');
                           } finally {
                             setIsSyncingCloud(false);
                           }
                         }}
-                        className="py-2 px-2.5 rounded-lg bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500/50 text-emerald-300 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                        className="py-2.5 px-2.5 rounded-lg bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500/50 text-emerald-300 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
                       >
                         <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCloud ? 'animate-spin' : ''}`} />
                         <span>Baixar da Nuvem</span>
@@ -395,25 +402,40 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
                             setCloudSyncMsg(null);
                             soundEffects.playSystemBeep();
                             await onForceSyncToCloud();
-                            setCloudSyncMsg('Dados enviados para a nuvem com sucesso!');
+                            setCloudSyncMsg(`✓ Progresso atual (Nv ${player.level} - ${quests.length} missões) gravado na nuvem!`);
                           } catch (err: any) {
                             setCloudSyncMsg(`Erro ao enviar: ${err?.message || 'Falha no Firestore'}`);
                           } finally {
                             setIsSyncingCloud(false);
                           }
                         }}
-                        className="py-2 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                        className="py-2.5 px-2.5 rounded-lg bg-sky-950/60 hover:bg-sky-900/60 border border-sky-500/50 text-sky-200 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
                       >
-                        <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+                        <Cloud className="w-3.5 h-3.5 text-sky-400" />
                         <span>Subir pra Nuvem</span>
                       </button>
                     </div>
 
                     {cloudSyncMsg && (
-                      <p className="text-[11px] text-center font-mono text-emerald-300 bg-emerald-950/40 p-1.5 rounded border border-emerald-500/30">
+                      <div className={`p-2.5 rounded-lg text-xs leading-relaxed ${
+                        cloudSyncMsg.startsWith('✓') 
+                          ? 'bg-emerald-950/70 border border-emerald-500/40 text-emerald-300' 
+                          : 'bg-amber-950/60 border border-amber-500/40 text-amber-200'
+                      }`}>
                         {cloudSyncMsg}
-                      </p>
+                      </div>
                     )}
+
+                    {/* Guia de primeira sincronização */}
+                    <div className="p-3 rounded-lg bg-emerald-950/20 border border-emerald-500/20 text-[11px] text-slate-300 space-y-1">
+                      <strong className="text-emerald-300 block">💡 Primeira Sincronização:</strong>
+                      <p>
+                        Se o seu progresso anterior no GitHub ainda não havia sido gravado no Firebase, basta usar o botão <strong>"Selecionar Arquivo JSON"</strong> acima para carregar o seu backup e depois clicar em <strong>"Subir pra Nuvem"</strong>.
+                      </p>
+                      <p className="text-slate-400 text-[10px]">
+                        Assim que o save for enviado para a nuvem uma vez, todos os seus dispositivos (PC e celular) sincronizarão automaticamente via Google!
+                      </p>
+                    </div>
                   </div>
                 )}
 

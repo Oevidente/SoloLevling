@@ -1,40 +1,38 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User } from 'firebase/auth';
-import { PlayerProfile, Quest, PillarType, InventoryItem, HunterRank, ExpRewardEvent } from './types/hunter';
-import { INITIAL_DEFAULT_QUESTS } from './data/defaultQuests';
-import { soundEffects } from './services/soundEffects';
-import {
-  subscribeToAuth,
-  loginWithGoogle,
-  logoutUser,
-  loadPlayerFromFirestore,
-  savePlayerToFirestore,
-  loadQuestsFromFirestore,
-  saveQuestToFirestore,
-  batchSaveQuestsToFirestore,
-  deleteQuestFromFirestore,
-} from './services/firebase';
 import { TopBar } from './components/TopBar';
-import { MobileBottomNav } from './components/MobileBottomNav';
 import { StatusHud } from './components/StatusHud';
+import { InventoryModal } from './components/InventoryModal';
 import { RedemptionDungeonModal } from './components/RedemptionDungeonModal';
 import { LevelUpModal } from './components/LevelUpModal';
 import { LootBoxModal } from './components/LootBoxModal';
-import { InventoryModal } from './components/InventoryModal';
 import { NewQuestModal } from './components/NewQuestModal';
 import { CycleReportModal } from './components/CycleReportModal';
-import { OfflineIndicator } from './components/OfflineIndicator';
 import { CloudBackupModal } from './components/CloudBackupModal';
+import { SyncConflictModal } from './components/SyncConflictModal';
 import { ExpRewardPopup } from './components/ExpRewardPopup';
+import { MobileBottomNav } from './components/MobileBottomNav';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { INITIAL_DEFAULT_QUESTS } from './data/defaultQuests';
+import { PlayerProfile, Quest, PillarType, HunterRank, InventoryItem, ExpRewardEvent } from './types/hunter';
+import { soundEffects } from './services/soundEffects';
+import { 
+  subscribeToAuth, 
+  loginWithGoogle, 
+  logoutUser, 
+  fetchCloudSave, 
+  saveCloudSave, 
+  GameSaveData 
+} from './services/firebase';
 
 const DEFAULT_PLAYER: PlayerProfile = {
   userId: 'local_hunter',
-  name: 'Alex Albuquerque Belo Neto',
+  name: 'Sung Jin-Woo',
   hunterRank: 'E',
-  hunterTitle: 'Desenvolvedor / Monarca da Resiliência',
-  level: 2,
-  currentXp: 300,
-  nextLevelXp: 1200,
+  hunterTitle: 'O Despertado da Tríade',
+  level: 1,
+  currentXp: 0,
+  nextLevelXp: 100,
   unassignedPoints: 0,
   stats: {
     fisico: 10,
@@ -42,7 +40,7 @@ const DEFAULT_PLAYER: PlayerProfile = {
     espiritual: 10,
   },
   hp: { current: 100, max: 100 },
-  mp: { current: 100, max: 100 },
+  mp: { current: 50, max: 50 },
   streakDays: 1,
   lastActiveDate: new Date().toISOString().split('T')[0],
   inventory: [],
@@ -54,8 +52,9 @@ const DEFAULT_PLAYER: PlayerProfile = {
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentTab, setCurrentTab] = useState<'status' | 'inventory'>('status');
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'saving' | 'offline' | 'local'>('local');
 
-  // Estado do Caçador com Local-First Caching (Poupando cota de leitura/gravação)
+  // Estado do Caçador com Local-First Caching
   const [player, setPlayer] = useState<PlayerProfile>(() => {
     try {
       const saved = localStorage.getItem('solo_hunter_profile');
@@ -89,6 +88,10 @@ export default function App() {
   const [isCloudBackupOpen, setIsCloudBackupOpen] = useState(false);
   const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
 
+  // Sincronização entre dispositivos e resolução de conflitos
+  const [pendingCloudData, setPendingCloudData] = useState<GameSaveData | null>(null);
+  const [isSyncConflictOpen, setIsSyncConflictOpen] = useState(false);
+
   // Recompensa de EXP pop-up & Glow de missão
   const [activeExpReward, setActiveExpReward] = useState<ExpRewardEvent | null>(null);
   const [recentlyCompletedQuestId, setRecentlyCompletedQuestId] = useState<string | null>(null);
@@ -98,6 +101,7 @@ export default function App() {
 
   // Debounced cloud sync ref
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isInitialAuthCheck = useRef(true);
 
   // Sincronização LocalStorage constante
   useEffect(() => {
@@ -112,51 +116,147 @@ export default function App() {
     } catch {}
   }, [quests]);
 
-  // Listener de Autenticação Firebase
+  // Listener de Autenticação Firebase & Detecção Multi-Dispositivo
   useEffect(() => {
     const unsubscribe = subscribeToAuth(async (user) => {
       setCurrentUser(user);
       if (user) {
         try {
-          const cloudPlayer = await loadPlayerFromFirestore(user.uid);
-          if (cloudPlayer) {
-            setPlayer(cloudPlayer);
-          } else {
-            await savePlayerToFirestore(user.uid, { ...player, userId: user.uid });
-          }
+          setSyncStatus('saving');
+          const cloudSave = await fetchCloudSave(user.uid);
+          
+          if (cloudSave && cloudSave.player) {
+            // Existe save na nuvem: verificar se difere dos dados locais
+            const localRaw = localStorage.getItem('solo_hunter_profile');
+            const localParsed = localRaw ? JSON.parse(localRaw) : DEFAULT_PLAYER;
+            
+            // Compara para saber se vale a pena perguntar ou se já é idêntico
+            const isLocalDefault = localParsed.level === 1 && localParsed.currentXp === 0 && localParsed.name === 'Sung Jin-Woo';
+            const isDifferent = 
+              cloudSave.player.level !== localParsed.level ||
+              cloudSave.player.currentXp !== localParsed.currentXp ||
+              cloudSave.player.name !== localParsed.name ||
+              (cloudSave.quests && cloudSave.quests.length !== quests.length);
 
-          const cloudQuests = await loadQuestsFromFirestore(user.uid);
-          if (cloudQuests && cloudQuests.length > 0) {
-            setQuests(cloudQuests);
+            if (isLocalDefault && !isDifferent) {
+              // Se o local for padrão e nuvem também, apenas baixa silenciosamente
+              setPlayer({ ...cloudSave.player, userId: user.uid });
+              if (cloudSave.quests && cloudSave.quests.length > 0) {
+                setQuests(cloudSave.quests);
+              }
+              setSyncStatus('synced');
+            } else if (isDifferent || isInitialAuthCheck.current) {
+              // Pergunta ao usuário se deseja baixar da nuvem ou manter dados locais
+              setPendingCloudData(cloudSave);
+              setIsSyncConflictOpen(true);
+              setSyncStatus('synced');
+            } else {
+              setSyncStatus('synced');
+            }
           } else {
-            const userQuests = quests.map((q) => ({ ...q, userId: user.uid }));
-            await batchSaveQuestsToFirestore(user.uid, userQuests);
-            setQuests(userQuests);
+            // Nenhum save existente na nuvem: sobe automaticamente os dados locais
+            await saveCloudSave(user.uid, { player, quests });
+            setSyncStatus('synced');
           }
         } catch (err) {
           console.error('Erro na sincronização inicial do Firestore:', err);
+          setSyncStatus('offline');
+        } finally {
+          isInitialAuthCheck.current = false;
         }
+      } else {
+        setSyncStatus('local');
+        isInitialAuthCheck.current = false;
       }
     });
 
     return () => unsubscribe();
   }, []);
 
-  // Salva no Firestore de forma espaçada (debounce) para nunca estourar cotas
+  // Salva no Firestore de forma consolidada e espaçada (debounce) para nunca estourar cotas
   const triggerDebouncedSync = (updatedPlayer: PlayerProfile, updatedQuests?: Quest[]) => {
-    if (!currentUser) return;
+    if (!currentUser || isSyncConflictOpen) return;
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
 
+    setSyncStatus('saving');
     syncTimeoutRef.current = setTimeout(async () => {
       try {
-        await savePlayerToFirestore(currentUser.uid, updatedPlayer);
-        if (updatedQuests) {
-          await batchSaveQuestsToFirestore(currentUser.uid, updatedQuests);
-        }
+        await saveCloudSave(currentUser.uid, {
+          player: updatedPlayer,
+          quests: updatedQuests || quests,
+        });
+        setSyncStatus('synced');
       } catch (err) {
         console.error('Falha ao sincronizar com Firestore:', err);
+        setSyncStatus('offline');
       }
-    }, 2000);
+    }, 2500);
+  };
+
+  // Escolha 1: Baixar dados da Nuvem
+  const handleChooseCloudSave = () => {
+    if (!pendingCloudData) return;
+    const downloadedPlayer = {
+      ...pendingCloudData.player,
+      userId: currentUser?.uid || pendingCloudData.player.userId,
+    };
+    const downloadedQuests = pendingCloudData.quests || [];
+
+    setPlayer(downloadedPlayer);
+    setQuests(downloadedQuests);
+
+    try {
+      localStorage.setItem('solo_hunter_profile', JSON.stringify(downloadedPlayer));
+      localStorage.setItem('solo_hunter_quests', JSON.stringify(downloadedQuests));
+    } catch {}
+
+    setIsSyncConflictOpen(false);
+    setPendingCloudData(null);
+    setSyncStatus('synced');
+    soundEffects.playQuestComplete();
+  };
+
+  // Escolha 2: Manter dados deste Dispositivo (Sobe para a Nuvem)
+  const handleChooseLocalSave = async () => {
+    if (!currentUser) return;
+    try {
+      setSyncStatus('saving');
+      await saveCloudSave(currentUser.uid, { player, quests });
+      setSyncStatus('synced');
+      setIsSyncConflictOpen(false);
+      setPendingCloudData(null);
+      soundEffects.playLevelUp();
+    } catch (err) {
+      console.error('Erro ao enviar dados locais para a nuvem:', err);
+      setSyncStatus('offline');
+    }
+  };
+
+  // Forçar Baixar da Nuvem manualmente pelo modal de Backup
+  const handleForcePullFromCloud = async () => {
+    if (!currentUser) return;
+    setSyncStatus('saving');
+    const cloudSave = await fetchCloudSave(currentUser.uid);
+    if (!cloudSave || !cloudSave.player) {
+      throw new Error('Nenhum save encontrado na nuvem para esta conta.');
+    }
+    const downloadedPlayer = { ...cloudSave.player, userId: currentUser.uid };
+    const downloadedQuests = cloudSave.quests || [];
+    setPlayer(downloadedPlayer);
+    setQuests(downloadedQuests);
+    try {
+      localStorage.setItem('solo_hunter_profile', JSON.stringify(downloadedPlayer));
+      localStorage.setItem('solo_hunter_quests', JSON.stringify(downloadedQuests));
+    } catch {}
+    setSyncStatus('synced');
+  };
+
+  // Forçar Enviar para Nuvem manualmente pelo modal de Backup
+  const handleForceSyncToCloud = async () => {
+    if (!currentUser) return;
+    setSyncStatus('saving');
+    await saveCloudSave(currentUser.uid, { player, quests });
+    setSyncStatus('synced');
   };
 
   // Cálculo dinâmico de Rank
@@ -175,7 +275,6 @@ export default function App() {
     const quest = quests.find((q) => q.id === questId);
     if (!quest) return;
 
-    // Se já foi cumprida neste ciclo, bloqueia para evitar repetição/farming indevido no mesmo dia
     if (quest.isCompleted) {
       soundEffects.playAlertNotice();
       return;
@@ -197,7 +296,6 @@ export default function App() {
     setQuests(updatedQuests);
     soundEffects.playQuestComplete();
 
-    // Dispara animação de brilho no card de missão recém-concluída
     setRecentlyCompletedQuestId(questId);
     setTimeout(() => {
       setRecentlyCompletedQuestId((prev) => (prev === questId ? null : prev));
@@ -212,7 +310,6 @@ export default function App() {
     const newStats = { ...player.stats };
     newStats[quest.category] += 1;
 
-    // Dispara o Pop-up de EXP (fecha sozinho em 5 segundos)
     setActiveExpReward({
       id: `${quest.id}_${Date.now()}`,
       questTitle: quest.title,
@@ -437,7 +534,6 @@ export default function App() {
     } catch (err: any) {
       const msg = err?.message || 'Falha ao autenticar com o Google.';
       setAuthErrorMessage(msg);
-      // Abre o modal diretamente na aba de configuração do Firebase para o usuário colar suas chaves ou usar backup manual
       setIsCloudBackupOpen(true);
     }
   };
@@ -448,6 +544,7 @@ export default function App() {
       soundEffects.playSystemBeep();
       await logoutUser();
       setCurrentUser(null);
+      setSyncStatus('local');
     } catch (err) {
       console.error('Falha ao desconectar:', err);
     }
@@ -477,10 +574,7 @@ export default function App() {
   const handleUpdateQuest = (updatedQuest: Quest) => {
     const updatedQuests = quests.map((q) => (q.id === updatedQuest.id ? updatedQuest : q));
     setQuests(updatedQuests);
-
-    if (currentUser) {
-      saveQuestToFirestore(currentUser.uid, updatedQuest).catch(console.error);
-    }
+    triggerDebouncedSync(player, updatedQuests);
   };
 
   // Adicionar Nova Missão
@@ -495,20 +589,14 @@ export default function App() {
 
     const updatedQuests = [newQuest, ...quests];
     setQuests(updatedQuests);
-
-    if (currentUser) {
-      saveQuestToFirestore(currentUser.uid, newQuest).catch(console.error);
-    }
+    triggerDebouncedSync(player, updatedQuests);
   };
 
   // Deletar Missão
   const handleDeleteQuest = (questId: string) => {
     const updatedQuests = quests.filter((q) => q.id !== questId);
     setQuests(updatedQuests);
-
-    if (currentUser) {
-      deleteQuestFromFirestore(currentUser.uid, questId).catch(console.error);
-    }
+    triggerDebouncedSync(player, updatedQuests);
   };
 
   return (
@@ -529,6 +617,7 @@ export default function App() {
         onOpenCloudBackup={() => setIsCloudBackupOpen(true)}
         isMuted={isMuted}
         onToggleMute={handleToggleMute}
+        syncStatus={syncStatus}
       />
 
       {/* Main Viewport com padding inferior seguro para a barra mobile */}
@@ -562,7 +651,7 @@ export default function App() {
 
       </main>
 
-      {/* Footer minimalista sem telemetria fake */}
+      {/* Footer minimalista */}
       <footer className="border-t border-emerald-500/15 py-5 pb-24 md:pb-5 text-center text-xs text-slate-500">
         <p>System: Solo Leveling · Gamificação dos 3 Pilares com Neurociência para TDA</p>
       </footer>
@@ -579,6 +668,16 @@ export default function App() {
 
       {/* Indicador de Status Offline do PWA */}
       <OfflineIndicator />
+
+      {/* Modal de Conflito de Sincronização entre Nuvem e Dispositivo */}
+      <SyncConflictModal
+        isOpen={isSyncConflictOpen}
+        cloudData={pendingCloudData}
+        localPlayer={player}
+        localQuests={quests}
+        onChooseCloud={handleChooseCloudSave}
+        onChooseLocal={handleChooseLocalSave}
+      />
 
       {/* Modais Globais */}
       <RedemptionDungeonModal
@@ -636,6 +735,8 @@ export default function App() {
         isLoggedIn={Boolean(currentUser)}
         userEmail={currentUser?.email}
         authError={authErrorMessage}
+        onForcePullFromCloud={handleForcePullFromCloud}
+        onForceSyncToCloud={handleForceSyncToCloud}
       />
 
       {/* Pop-up de Recompensa de EXP (Auto-fecha após 5s) */}

@@ -15,22 +15,12 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    // Hunter profile and status
+    // Hunter profile, game saves and all subcollections
     match /users/{userId} {
-      allow get: if isOwner(userId);
-      allow create: if isOwner(userId) && isValidId(userId);
-      allow update: if isOwner(userId) && isValidId(userId);
-      allow delete: if isOwner(userId);
+      allow read, write: if isOwner(userId);
 
-      // Quests subcollection
-      match /quests/{questId} {
-        allow get, list: if isOwner(userId);
-        allow create, update: if isOwner(userId) && isValidId(questId);
-        allow delete: if isOwner(userId) && isValidId(questId);
+      match /{allPaths=**} {
+        allow read, write: if isOwner(userId);
       }
     }
   }

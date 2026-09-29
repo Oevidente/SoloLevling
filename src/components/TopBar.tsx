@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User } from 'firebase/auth';
-import { Volume2, VolumeX, LogIn, LogOut, Shield, Gift, LayoutDashboard, Package, Share2, User as UserIcon, Cloud } from 'lucide-react';
+import { Volume2, VolumeX, LogIn, LogOut, Shield, Gift, LayoutDashboard, Package, Share2, Cloud, Check, RefreshCw } from 'lucide-react';
 import { soundEffects } from '../services/soundEffects';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -18,6 +18,7 @@ interface TopBarProps {
   onOpenCloudBackup: () => void;
   isMuted: boolean;
   onToggleMute: () => void;
+  syncStatus?: 'synced' | 'saving' | 'offline' | 'local';
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -34,6 +35,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onOpenCloudBackup,
   isMuted,
   onToggleMute,
+  syncStatus = 'local',
 }) => {
   const [showMobileProfileMenu, setShowMobileProfileMenu] = useState(false);
 
@@ -163,17 +165,32 @@ export const TopBar: React.FC<TopBarProps> = ({
               {isMuted ? <VolumeX className="w-4 h-4 text-slate-500" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
             </button>
 
-            {/* Botão Backup / Nuvem */}
+            {/* Botão Backup / Nuvem com indicador de Sync */}
             <button
               onClick={() => {
                 soundEffects.playSystemBeep();
                 onOpenCloudBackup();
               }}
               className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-emerald-300 hover:text-emerald-100 bg-emerald-950/30 hover:bg-emerald-900/40 border border-emerald-500/40 rounded-lg transition-colors cursor-pointer"
-              title="Gerenciar Backup em Arquivo e Conexão Firebase/Google"
+              title="Gerenciar Backup e Sincronização Firebase/Google"
             >
               <Cloud className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Backup & Nuvem</span>
+              <span>Nuvem</span>
+              {user && (
+                <span className="flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-950/80 border border-emerald-500/40 text-emerald-400">
+                  {syncStatus === 'saving' ? (
+                    <>
+                      <RefreshCw className="w-2.5 h-2.5 animate-spin text-amber-400" />
+                      <span className="text-amber-400">Salvando</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-2.5 h-2.5 text-emerald-400" />
+                      <span>Sync</span>
+                    </>
+                  )}
+                </span>
+              )}
             </button>
 
             {/* Auth Google */}
@@ -218,7 +235,6 @@ export const TopBar: React.FC<TopBarProps> = ({
       {/* ========================================================
           MOBILE TOP HEADER (Apenas no mobile: md:hidden)
           Sem navbar superior! Apenas identidade visual + utilidades rápidas
-          (A navegação completa fica acessível na barra inferior MobileBottomNav)
           ======================================================== */}
       <div className="md:hidden">
         <div className="px-3.5 h-13 flex items-center justify-between gap-2">
@@ -279,7 +295,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               <div className="relative">
                 <button
                   onClick={() => setShowMobileProfileMenu((prev) => !prev)}
-                  className="flex items-center gap-1.5 p-0.5 rounded-full border border-emerald-400/60 bg-emerald-950/40 active:scale-95 transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 p-0.5 rounded-full border border-emerald-400/60 bg-emerald-950/40 active:scale-95 transition-all cursor-pointer relative"
                   aria-label="Abrir Menu do Caçador"
                 >
                   {user.photoURL ? (
@@ -294,6 +310,9 @@ export const TopBar: React.FC<TopBarProps> = ({
                       {(user.displayName || 'C')[0]}
                     </div>
                   )}
+                  {syncStatus === 'saving' && (
+                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+                  )}
                 </button>
 
                 {/* Dropdown do perfil no mobile para logout e status */}
@@ -306,6 +325,10 @@ export const TopBar: React.FC<TopBarProps> = ({
                       <p className="text-[10px] text-emerald-400 truncate font-mono">
                         {user.email || 'Conta Vinculada'}
                       </p>
+                      <div className="mt-1 flex items-center gap-1 text-[9px] font-mono text-emerald-400 bg-emerald-950/80 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                        <Check className="w-2.5 h-2.5" />
+                        <span>Nuvem Ativa & Sincronizada</span>
+                      </div>
                     </div>
                     <button
                       onClick={() => {

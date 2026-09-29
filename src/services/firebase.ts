@@ -1,9 +1,8 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
-  signInAnonymously,
   signOut,
   onAuthStateChanged,
   User,
@@ -28,6 +27,14 @@ export interface FirebaseCustomConfig {
   firestoreDatabaseId?: string;
   storageBucket?: string;
   messagingSenderId?: string;
+}
+
+export interface GameSaveData {
+  player: PlayerProfile;
+  quests: Quest[];
+  updatedAt: string;
+  version: number;
+  deviceLabel?: string;
 }
 
 const LOCAL_STORAGE_FIREBASE_KEY = 'sololeveling_custom_firebase_config';
@@ -56,7 +63,7 @@ export function clearStoredFirebaseConfig() {
   localStorage.removeItem(LOCAL_STORAGE_FIREBASE_KEY);
 }
 
-// Resolução de credenciais em cascata: LocalStorage -> Vite env vars
+// Resolução de credenciais: LocalStorage -> Vite env vars
 const userCustom = getStoredFirebaseConfig();
 
 const activeConfig: FirebaseCustomConfig = {
@@ -77,22 +84,26 @@ export const isFirebaseConfigured = Boolean(
   activeConfig.projectId !== 'MY_PROJECT_ID'
 );
 
-// Inicialização segura do Firebase (evita crash se as chaves não tiverem sido configuradas ainda)
-let appInstance = null;
-let dbInstance = null;
-let authInstance = null;
-let googleProviderInstance = null;
+// Inicialização segura do Firebase
+let appInstance: any = null;
+let dbInstance: any = null;
+let authInstance: any = null;
+let googleProviderInstance: any = null;
 
 if (isFirebaseConfigured) {
   try {
-    appInstance = initializeApp({
-      projectId: activeConfig.projectId,
-      appId: activeConfig.appId,
-      apiKey: activeConfig.apiKey,
-      authDomain: activeConfig.authDomain || `${activeConfig.projectId}.firebaseapp.com`,
-      storageBucket: activeConfig.storageBucket,
-      messagingSenderId: activeConfig.messagingSenderId,
-    });
+    if (!getApps().length) {
+      appInstance = initializeApp({
+        projectId: activeConfig.projectId,
+        appId: activeConfig.appId,
+        apiKey: activeConfig.apiKey,
+        authDomain: activeConfig.authDomain || `${activeConfig.projectId}.firebaseapp.com`,
+        storageBucket: activeConfig.storageBucket,
+        messagingSenderId: activeConfig.messagingSenderId,
+      });
+    } else {
+      appInstance = getApp();
+    }
 
     if (activeConfig.firestoreDatabaseId && activeConfig.firestoreDatabaseId !== '(default)') {
       dbInstance = getFirestore(appInstance, activeConfig.firestoreDatabaseId);
@@ -111,9 +122,9 @@ if (isFirebaseConfigured) {
 }
 
 export const app = appInstance;
-export const db = dbInstance as any;
-export const auth = authInstance as any;
-export const googleProvider = googleProviderInstance as any;
+export const db = dbInstance;
+export const auth = authInstance;
+export const googleProvider = googleProviderInstance;
 export const currentFirebaseConfig = activeConfig;
 
 export enum OperationType {
@@ -132,8 +143,6 @@ export interface FirestoreErrorInfo {
   authInfo: {
     userId?: string | null;
     email?: string | null;
-    emailVerified?: boolean | null;
-    isAnonymous?: boolean | null;
   };
 }
 
@@ -141,19 +150,19 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
+      userId: auth?.currentUser?.uid,
+      email: auth?.currentUser?.email,
     },
     operationType,
     path,
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  console.error('Firestore Error:', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
 
-// Funções de Autenticação
+// ==========================================
+// AUTENTICAÇÃO COM GOOGLE
+// ==========================================
 export async function loginWithGoogle(): Promise<User | null> {
   if (!auth || !googleProvider) {
     throw new Error('CONFIG_REQUIRED: As chaves do Firebase ainda não foram configuradas. Abra as Configurações de Conexão no topo.');
@@ -168,23 +177,10 @@ export async function loginWithGoogle(): Promise<User | null> {
     } else if (error?.code === 'auth/popup-blocked') {
       throw new Error('POPUP_BLOQUEADO: O navegador bloqueou o pop-up de login do Google. Permita pop-ups para este site e tente novamente.');
     } else if (error?.code === 'auth/cancelled-popup-request' || error?.code === 'auth/popup-closed-by-user') {
-      throw new Error('POPUP_FECHADO: A janela de login foi fechada antes de concluir.');
+      throw new Error('POPUP_FECHADO: A janela de login do Google foi fechada antes de concluir.');
     } else if (error?.code === 'auth/operation-not-allowed') {
       throw new Error('PROVEDOR_DESATIVADO: O provedor Google não foi ativado no Firebase Console (Authentication > Sign-in method > Google).');
     }
-    throw error;
-  }
-}
-
-export async function loginAnonymously(): Promise<User | null> {
-  if (!auth) {
-    throw new Error('CONFIG_REQUIRED: Firebase não configurado.');
-  }
-  try {
-    const result = await signInAnonymously(auth);
-    return result.user;
-  } catch (error) {
-    console.error('Anonymous Sign In Error:', error);
     throw error;
   }
 }
@@ -207,20 +203,43 @@ export function subscribeToAuth(callback: (user: User | null) => void) {
   return onAuthStateChanged(auth, callback);
 }
 
-// Operações de Banco Otimizadas para Cota Mínima (Poupando leituras e gravações)
+// ==========================================
+// SINCRONIZAÇÃO COMPLETA DE ALTA EFICIÊNCIA
+// Poupa cotas: 1 leitura ao abrir / 1 gravação por alteração debounced
+// ==========================================
 
 /**
- * Carrega perfil do Caçador no Firestore
+ * Busca o save consolidado do jogador na nuvem (documento único users/{userId}/game/data)
  */
-export async function loadPlayerFromFirestore(userId: string): Promise<PlayerProfile | null> {
+export async function fetchCloudSave(userId: string): Promise<GameSaveData | null> {
   if (!db) return null;
-  const path = `users/${userId}`;
+  const path = `users/${userId}/game/data`;
   try {
-    const docRef = doc(db, 'users', userId);
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-      return docSnap.data() as PlayerProfile;
+    // 1. Tenta buscar no documento consolidado moderno
+    const gameDocRef = doc(db, 'users', userId, 'game', 'data');
+    const snap = await getDoc(gameDocRef);
+    if (snap.exists()) {
+      const data = snap.data() as GameSaveData;
+      return data;
     }
+
+    // 2. Fallback de compatibilidade caso o save antigo estivesse solto em users/{userId}
+    const legacyDocRef = doc(db, 'users', userId);
+    const legacySnap = await getDoc(legacyDocRef);
+    if (legacySnap.exists()) {
+      const legacyData = legacySnap.data() as any;
+      if (legacyData.level || legacyData.stats) {
+        // Busca quests legadas
+        const legacyQuests = await loadQuestsFromFirestore(userId);
+        return {
+          player: legacyData as PlayerProfile,
+          quests: legacyQuests,
+          updatedAt: legacyData.updatedAt || new Date().toISOString(),
+          version: 1,
+        };
+      }
+    }
+
     return null;
   } catch (error) {
     handleFirestoreError(error, OperationType.GET, path);
@@ -229,8 +248,49 @@ export async function loadPlayerFromFirestore(userId: string): Promise<PlayerPro
 }
 
 /**
- * Salva perfil do Caçador no Firestore
+ * Salva o jogo completo na nuvem em 1 único documento (máxima economia de cota)
  */
+export async function saveCloudSave(userId: string, data: { player: PlayerProfile; quests: Quest[] }): Promise<void> {
+  if (!db) return;
+  const path = `users/${userId}/game/data`;
+  try {
+    const saveData: GameSaveData = {
+      player: {
+        ...data.player,
+        userId,
+      },
+      quests: data.quests.map((q) => ({ ...q, userId })),
+      updatedAt: new Date().toISOString(),
+      version: 2,
+    };
+
+    const gameDocRef = doc(db, 'users', userId, 'game', 'data');
+    await setDoc(gameDocRef, saveData);
+
+    // Atualiza resumo básico no nó do usuário para metadados rápidos
+    const userDocRef = doc(db, 'users', userId);
+    await setDoc(userDocRef, {
+      userId,
+      name: data.player.name,
+      level: data.player.level,
+      hunterRank: data.player.hunterRank,
+      currentXp: data.player.currentXp,
+      updatedAt: saveData.updatedAt,
+    }, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+// ==========================================
+// LEGACY HELPERS (Para compatibilidade retroativa)
+// ==========================================
+
+export async function loadPlayerFromFirestore(userId: string): Promise<PlayerProfile | null> {
+  const save = await fetchCloudSave(userId);
+  return save ? save.player : null;
+}
+
 export async function savePlayerToFirestore(userId: string, profile: PlayerProfile): Promise<void> {
   if (!db) return;
   const path = `users/${userId}`;
@@ -246,9 +306,6 @@ export async function savePlayerToFirestore(userId: string, profile: PlayerProfi
   }
 }
 
-/**
- * Carrega missões do Caçador no Firestore
- */
 export async function loadQuestsFromFirestore(userId: string): Promise<Quest[]> {
   if (!db) return [];
   const path = `users/${userId}/quests`;
@@ -266,27 +323,6 @@ export async function loadQuestsFromFirestore(userId: string): Promise<Quest[]> 
   }
 }
 
-/**
- * Salva ou atualiza uma única missão no Firestore
- */
-export async function saveQuestToFirestore(userId: string, quest: Quest): Promise<void> {
-  if (!db) return;
-  const path = `users/${userId}/quests/${quest.id}`;
-  try {
-    const docRef = doc(db, 'users', userId, 'quests', quest.id);
-    await setDoc(docRef, {
-      ...quest,
-      userId,
-      updatedAt: new Date().toISOString(),
-    }, { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
-  }
-}
-
-/**
- * Salva lote de missões no Firestore (otimizado via Batch write)
- */
 export async function batchSaveQuestsToFirestore(userId: string, quests: Quest[]): Promise<void> {
   if (!db) return;
   const path = `users/${userId}/quests`;
@@ -306,9 +342,6 @@ export async function batchSaveQuestsToFirestore(userId: string, quests: Quest[]
   }
 }
 
-/**
- * Deleta uma missão no Firestore
- */
 export async function deleteQuestFromFirestore(userId: string, questId: string): Promise<void> {
   if (!db) return;
   const path = `users/${userId}/quests/${questId}`;

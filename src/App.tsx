@@ -98,6 +98,10 @@ export default function App() {
   const [isCycleReportOpen, setIsCycleReportOpen] = useState(false);
   const [isCloudBackupOpen, setIsCloudBackupOpen] = useState(false);
 
+  // Status de Autenticação Google & Feedback
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
+
   // Recompensa de EXP pop-up & Glow de missão
   const [activeExpReward, setActiveExpReward] = useState<ExpRewardEvent | null>(null);
   const [recentlyCompletedQuestId, setRecentlyCompletedQuestId] = useState<string | null>(null);
@@ -132,6 +136,8 @@ export default function App() {
 
   // Login com Google
   const handleLogin = async () => {
+    setIsLoggingIn(true);
+    setAuthErrorMessage(null);
     try {
       soundEffects.playSystemBeep();
       const result = await loginWithGoogle();
@@ -141,7 +147,13 @@ export default function App() {
       soundEffects.playQuestComplete();
       setIsCloudBackupOpen(true);
     } catch (err: any) {
+      soundEffects.playAlertNotice();
       console.warn('Login com Google cancelado ou com erro:', err);
+      const msg = err?.message || 'Falha ao conectar com o Google. Verifique sua conexão e tente novamente.';
+      setAuthErrorMessage(msg);
+      setIsCloudBackupOpen(true);
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -152,6 +164,7 @@ export default function App() {
     setCurrentUser(null);
     setAccessToken(null);
     setCachedAccessToken(null);
+    setAuthErrorMessage(null);
   };
 
   // Cálculo dinâmico de Rank
@@ -437,6 +450,7 @@ export default function App() {
         onOpenCloudBackup={() => setIsCloudBackupOpen(true)}
         isMuted={isMuted}
         onToggleMute={handleToggleMute}
+        isLoggingIn={isLoggingIn}
       />
 
       {/* Main Viewport */}
@@ -532,7 +546,10 @@ export default function App() {
 
       <CloudBackupModal
         isOpen={isCloudBackupOpen}
-        onClose={() => setIsCloudBackupOpen(false)}
+        onClose={() => {
+          setIsCloudBackupOpen(false);
+          setAuthErrorMessage(null);
+        }}
         player={player}
         quests={quests}
         onImportData={handleImportData}
@@ -543,6 +560,9 @@ export default function App() {
         userName={currentUser?.displayName}
         userPhoto={currentUser?.photoURL}
         accessToken={accessToken}
+        isLoggingIn={isLoggingIn}
+        authErrorMessage={authErrorMessage}
+        onClearAuthError={() => setAuthErrorMessage(null)}
       />
 
       {/* Pop-up de Recompensa de EXP */}

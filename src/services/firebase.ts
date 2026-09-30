@@ -175,7 +175,7 @@ export function subscribeToAuth(
  */
 export async function loginWithGoogle(): Promise<{ user: User; accessToken: string }> {
   if (!auth || !googleProvider) {
-    throw new Error('Serviço de autenticação não inicializado. Verifique as credenciais da API do Google.');
+    throw new Error('Serviço de autenticação não inicializado. Verifique se as credenciais do Firebase estão preenchidas na aba "Configurações" ou use o backup por Arquivo Local (JSON).');
   }
 
   try {
@@ -185,7 +185,7 @@ export async function loginWithGoogle(): Promise<{ user: User; accessToken: stri
 
     if (!token) {
       console.warn('Nenhum access token retornado no credential.');
-      throw new Error('Falha ao obter o token de acesso do Google Drive. Verifique se autorizou o acesso.');
+      throw new Error('Falha ao obter o token de acesso do Google Drive. Verifique se autorizou o acesso às permissões do Drive.');
     }
 
     cachedAccessToken = token;
@@ -196,6 +196,27 @@ export async function loginWithGoogle(): Promise<{ user: User; accessToken: stri
     };
   } catch (error: any) {
     console.error('Erro no login Google:', error);
+    
+    if (error?.code === 'auth/popup-blocked') {
+      throw new Error('O navegador bloqueou a janela de login do Google. Por favor, permita pop-ups para este site e tente novamente.');
+    }
+    if (error?.code === 'auth/popup-closed-by-user') {
+      throw new Error('A janela de autenticação do Google foi fechada antes de concluir o login.');
+    }
+    if (error?.code === 'auth/cancelled-popup-request') {
+      throw new Error('A tentativa de login anterior foi cancelada. Tente clicar novamente.');
+    }
+    if (
+      error?.code === 'auth/invalid-api-key' ||
+      error?.code === 'auth/api-key-not-valid' ||
+      error?.code === 'auth/configuration-not-found'
+    ) {
+      throw new Error('Credenciais de API do Firebase não configuradas ou inválidas. Você pode configurá-las na aba "Configurações" ou usar o Backup por Arquivo Local (JSON) imediatamente sem custo.');
+    }
+    if (error?.code === 'auth/unauthorized-domain') {
+      throw new Error('Este domínio não está na lista de domínios autorizados do Firebase Authentication. Adicione o domínio nas configurações do seu projeto.');
+    }
+    
     throw error;
   }
 }

@@ -52,6 +52,9 @@ interface CloudBackupModalProps {
   userName?: string | null;
   userPhoto?: string | null;
   accessToken: string | null;
+  isLoggingIn?: boolean;
+  authErrorMessage?: string | null;
+  onClearAuthError?: () => void;
 }
 
 export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
@@ -67,6 +70,9 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
   userName,
   userPhoto,
   accessToken,
+  isLoggingIn = false,
+  authErrorMessage = null,
+  onClearAuthError,
 }) => {
   const [activeTab, setActiveTab] = useState<'drive' | 'local' | 'config'>('drive');
   
@@ -427,15 +433,73 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
                     ) : (
                       <button
                         onClick={onTriggerGoogleLogin}
-                        className="w-full sm:w-auto px-4 py-2 text-xs font-black uppercase tracking-wider text-slate-950 bg-emerald-400 hover:bg-emerald-300 rounded-lg transition-all shadow-[0_0_15px_rgba(34,197,94,0.4)] flex items-center justify-center gap-2 cursor-pointer"
+                        disabled={isLoggingIn}
+                        className="w-full sm:w-auto px-4 py-2 text-xs font-black uppercase tracking-wider text-slate-950 bg-emerald-400 hover:bg-emerald-300 rounded-lg transition-all shadow-[0_0_15px_rgba(34,197,94,0.4)] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
                       >
-                        <LogIn className="w-4 h-4" />
-                        <span>Conectar com Google</span>
+                        {isLoggingIn ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                            <span>Conectando...</span>
+                          </>
+                        ) : (
+                          <>
+                            <LogIn className="w-4 h-4" />
+                            <span>Conectar com Google</span>
+                          </>
+                        )}
                       </button>
                     )}
                   </div>
                 </div>
               </div>
+
+              {/* Banner de Erro de Autenticação com Ações Diretas */}
+              {authErrorMessage && !isLoggedIn && (
+                <div className="p-4 rounded-xl bg-amber-950/40 border border-amber-500/60 space-y-3 text-xs animate-in fade-in">
+                  <div className="flex items-start gap-2.5">
+                    <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-bold text-amber-200">Aviso de Conexão com o Google</h4>
+                      <p className="text-slate-300 mt-1 leading-relaxed">{authErrorMessage}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-amber-500/20">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        soundEffects.playSystemBeep();
+                        if (onClearAuthError) onClearAuthError();
+                        setActiveTab('config');
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500/50 text-emerald-300 font-bold text-[11px] cursor-pointer transition-colors flex items-center gap-1.5"
+                    >
+                      <Settings className="w-3.5 h-3.5" />
+                      <span>Configurações do Firebase</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        soundEffects.playSystemBeep();
+                        if (onClearAuthError) onClearAuthError();
+                        setActiveTab('local');
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-bold text-[11px] cursor-pointer transition-colors flex items-center gap-1.5"
+                    >
+                      <FileJson className="w-3.5 h-3.5" />
+                      <span>Fazer Backup Local (JSON)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onTriggerGoogleLogin}
+                      disabled={isLoggingIn}
+                      className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-[11px] cursor-pointer transition-colors ml-auto flex items-center gap-1"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isLoggingIn ? 'animate-spin' : ''}`} />
+                      <span>Tentar Conectar Novamente</span>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Informações da Pasta & Arquivo no Drive */}
               {isLoggedIn && (
@@ -560,10 +624,20 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
                   </p>
                   <button
                     onClick={onTriggerGoogleLogin}
-                    className="px-5 py-2.5 text-xs font-black uppercase tracking-wider text-slate-950 bg-emerald-400 hover:bg-emerald-300 rounded-lg transition-all shadow-[0_0_20px_rgba(34,197,94,0.4)] inline-flex items-center gap-2 cursor-pointer"
+                    disabled={isLoggingIn}
+                    className="px-5 py-2.5 text-xs font-black uppercase tracking-wider text-slate-950 bg-emerald-400 hover:bg-emerald-300 rounded-lg transition-all shadow-[0_0_20px_rgba(34,197,94,0.4)] inline-flex items-center gap-2 cursor-pointer disabled:opacity-60"
                   >
-                    <LogIn className="w-4 h-4" />
-                    <span>Conectar com Google para Usar o Drive</span>
+                    {isLoggingIn ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Conectando ao Google...</span>
+                      </>
+                    ) : (
+                      <>
+                        <LogIn className="w-4 h-4" />
+                        <span>Conectar com Google para Usar o Drive</span>
+                      </>
+                    )}
                   </button>
                 </div>
               )}

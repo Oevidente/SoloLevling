@@ -19,6 +19,7 @@ interface TopBarProps {
   isMuted: boolean;
   onToggleMute: () => void;
   syncStatus?: 'synced' | 'saving' | 'offline' | 'local';
+  isLoggingIn?: boolean;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -36,6 +37,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   isMuted,
   onToggleMute,
   syncStatus = 'local',
+  isLoggingIn = false,
 }) => {
   const [showMobileProfileMenu, setShowMobileProfileMenu] = useState(false);
 
@@ -203,11 +205,21 @@ export const TopBar: React.FC<TopBarProps> = ({
             ) : (
               <button
                 onClick={onLogin}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-emerald-300 bg-emerald-950/40 border border-emerald-400/60 rounded-lg hover:bg-emerald-500/25 hover:border-emerald-400 transition-all shadow-[0_0_15px_rgba(34,197,94,0.2)] whitespace-nowrap cursor-pointer"
+                disabled={isLoggingIn}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-emerald-300 bg-emerald-950/40 border border-emerald-400/60 rounded-lg hover:bg-emerald-500/25 hover:border-emerald-400 transition-all shadow-[0_0_15px_rgba(34,197,94,0.2)] whitespace-nowrap cursor-pointer disabled:opacity-60"
                 title="Conectar com Google para salvar no Drive"
               >
-                <LogIn className="w-3.5 h-3.5" />
-                <span>Entrar (Google)</span>
+                {isLoggingIn ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                    <span>Conectando...</span>
+                  </>
+                ) : (
+                  <>
+                    <LogIn className="w-3.5 h-3.5" />
+                    <span>Entrar (Google)</span>
+                  </>
+                )}
               </button>
             )}
           </div>
@@ -337,11 +349,21 @@ export const TopBar: React.FC<TopBarProps> = ({
                 </button>
                 <button
                   onClick={onLogin}
-                  className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-emerald-300 bg-emerald-950/50 border border-emerald-400/60 rounded-lg active:scale-95 transition-all shadow-[0_0_10px_rgba(34,197,94,0.2)] whitespace-nowrap cursor-pointer"
+                  disabled={isLoggingIn}
+                  className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-emerald-300 bg-emerald-950/50 border border-emerald-400/60 rounded-lg active:scale-95 transition-all shadow-[0_0_10px_rgba(34,197,94,0.2)] whitespace-nowrap cursor-pointer disabled:opacity-60"
                   title="Fazer Login Google"
                 >
-                  <LogIn className="w-3 h-3" />
-                  <span>Entrar</span>
+                  {isLoggingIn ? (
+                    <>
+                      <RefreshCw className="w-3 h-3 animate-spin text-emerald-400" />
+                      <span>...</span>
+                    </>
+                  ) : (
+                    <>
+                      <LogIn className="w-3 h-3" />
+                      <span>Entrar</span>
+                    </>
+                  )}
                 </button>
               </div>
             )}

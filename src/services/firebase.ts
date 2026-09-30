@@ -187,79 +187,235 @@ export function setCachedAccessToken(token: string | null) {
   setStoredAccessToken(token);
 }
 
+declare global {
+  interface Window {
+    google?: any;
+  }
+}
+
+const LOCAL_STORAGE_USER_INFO_KEY = 'sololeveling_user_profile_cache';
+
+export interface SimpleUserProfile {
+  uid: string;
+  displayName: string | null;
+  email: string | null;
+  photoURL: string | null;
+}
+
+export function getStoredUserProfile(): SimpleUserProfile | null {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_USER_INFO_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
+
+export function setStoredUserProfile(profile: SimpleUserProfile | null) {
+  try {
+    if (profile) {
+      localStorage.setItem(LOCAL_STORAGE_USER_INFO_KEY, JSON.stringify(profile));
+    } else {
+      localStorage.removeItem(LOCAL_STORAGE_USER_INFO_KEY);
+    }
+  } catch {}
+}
+
 /**
  * Listener de autenticação com restauração e persistência de sessão
  */
 export function subscribeToAuth(
-  callback: (user: User | null, accessToken: string | null) => void
+  callback: (user: any | null, accessToken: string | null) => void
 ): () => void {
+  // Restaura sessão existente imediatamente
+  const storedUser = getStoredUserProfile();
+  const storedToken = getStoredAccessToken();
+  if (storedUser && storedToken) {
+    callback(storedUser, storedToken);
+  }
+
   if (!auth) {
-    callback(null, null);
+    if (!storedUser || !storedToken) {
+      callback(null, null);
+    }
     return () => {};
   }
 
   return onAuthStateChanged(auth, (user) => {
     if (!user) {
-      cachedAccessToken = null;
-      setStoredAccessToken(null);
-      callback(null, null);
+      // Se não há usuário do Firebase, mas temos sessão do GIS armazenada, mantemos
+      const gisUser = getStoredUserProfile();
+      const gisToken = getStoredAccessToken();
+      if (gisUser && gisToken) {
+        callback(gisUser, gisToken);
+      } else {
+        cachedAccessToken = null;
+        setStoredAccessToken(null);
+        setStoredUserProfile(null);
+        callback(null, null);
+      }
     } else {
       const stored = getStoredAccessToken();
       cachedAccessToken = stored;
-      callback(user, stored);
+      const simpleUser: SimpleUserProfile = {
+        uid: user.uid,
+        displayName: user.displayName || user.email?.split('@')[0] || 'Caçador',
+        email: user.email || null,
+        photoURL: user.photoURL || null,
+      };
+      setStoredUserProfile(simpleUser);
+      callback(simpleUser, stored);
     }
   });
 }
 
 /**
- * Login com Google solicitando o escopo do Google Drive com persistência
+ * Autenticação Direta via Google Identity Services (GIS)
+ * Não requer redirecionamento via /__/auth/handler nem cookies de terceiros.
+ * Ideal e infalível para GitHub Pages e SPAs estáticos.
  */
-export async function loginWithGoogle(): Promise<{ user: User; accessToken: string }> {
-  if (!auth || !googleProvider) {
-    throw new Error('Serviço de autenticação não inicializado. Verifique se as credenciais do Firebase estão preenchidas na aba "Configurações" ou use o backup por Arquivo Local (JSON).');
-  }
+export async function loginWithGoogleIdentityServices(customClientId?: string): Promise<{ user: SimpleUserProfile; accessToken: string }> {
+  const resolvedClientId =
+    customClientId ||
+    userCustom?.appId || // pode ser usado se guardado
+    import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+    '149392141150-om7tfsqanvdtamd4qc1vebqk0kih6mcd.apps.googleusercontent.com';
 
-  try {
-    const result = await signInWithPopup(auth, googleProvider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    const token = credential?.accessToken;
+  return new Promise((resolve, reject) => {
+    const startGis = () => {
+      if (!window.google?.accounts?.oauth2) {
+        reject(new Error('Biblioteca Google Identity Services não carregada no navegador.'));
+        return;
+      }
 
-    if (!token) {
-      console.warn('Nenhum access token retornado no credential.');
-      throw new Error('Falha ao obter o token de acesso do Google Drive. Verifique se autorizou o acesso às permissões do Drive.');
-    }
+      try {
+        const client = window.google.accounts.oauth2.initTokenClient({
+          client_id: resolvedClientId,
+          scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+          prompt: 'select_account',
+          callback: async (response: any) => {
+            if (response.error) {
+              reject(new Error(response.error_description || response.error || 'Falha na autenticação do Google.'));
+              return;
+            }
 
-    cachedAccessToken = token;
-    setStoredAccessToken(token);
-    return {
-      user: result.user,
-      accessToken: token,
+            const token = response.access_token;
+            if (!token) {
+              reject(new Error('Token de acesso não retornado pelo Google.'));
+              return;
+            }
+
+            cachedAccessToken = token;
+            setStoredAccessToken(token);
+
+            // Obter perfil do usuário diretamente da API do Google
+            let profile: SimpleUserProfile = {
+              uid: 'hunter_' + Date.now(),
+              displayName: 'Caçador Conectado',
+              email: null,
+              photoURL: null,
+            };
+
+            try {
+              const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (res.ok) {
+                const data = await res.json();
+                profile = {
+                  uid: data.sub || profile.uid,
+                  displayName: data.name || data.email?.split('@')[0] || 'Caçador',
+                  email: data.email || null,
+                  photoURL: data.picture || null,
+                };
+              }
+            } catch (err) {
+              console.warn('Erro ao obter perfil via userinfo:', err);
+            }
+
+            setStoredUserProfile(profile);
+            resolve({ user: profile, accessToken: token });
+          },
+        });
+
+        client.requestAccessToken({ prompt: 'select_account' });
+      } catch (err: any) {
+        reject(err);
+      }
     };
-  } catch (error: any) {
-    console.error('Erro no login Google:', error);
-    
-    if (error?.code === 'auth/popup-blocked') {
-      throw new Error('O navegador bloqueou a janela de login do Google. Por favor, permita pop-ups para este site e tente novamente.');
+
+    if (window.google?.accounts?.oauth2) {
+      startGis();
+    } else {
+      // Se o script ainda não carregou, aguarda ou injeta
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      script.onload = () => startGis();
+      script.onerror = () => reject(new Error('Não foi possível carregar a biblioteca de login do Google.'));
+      document.head.appendChild(script);
     }
-    if (error?.code === 'auth/popup-closed-by-user') {
-      throw new Error('A janela de autenticação do Google foi fechada antes de concluir o login.');
+  });
+}
+
+/**
+ * Login com Google inteligente:
+ * 1. Tenta o Google Identity Services (GIS) direto (sem problema de redirect_uri ou cookies de terceiros no GitHub Pages).
+ * 2. Se não estiver disponível, tenta o Firebase Auth.
+ */
+export async function loginWithGoogle(): Promise<{ user: any; accessToken: string }> {
+  try {
+    // 1. Tenta autenticação nativa do Google Identity Services (mais compatível com GitHub Pages)
+    return await loginWithGoogleIdentityServices();
+  } catch (gisError: any) {
+    console.warn('Google Identity Services tentou autenticar, tentando fallback para Firebase Auth...', gisError);
+
+    if (!auth || !googleProvider) {
+      throw gisError;
     }
-    if (error?.code === 'auth/cancelled-popup-request') {
-      throw new Error('A tentativa de login anterior foi cancelada. Tente clicar novamente.');
+
+    // 2. Fallback para Firebase Auth
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const token = credential?.accessToken;
+
+      if (!token) {
+        throw new Error('Falha ao obter o token de acesso do Google Drive.');
+      }
+
+      cachedAccessToken = token;
+      setStoredAccessToken(token);
+
+      const simpleUser: SimpleUserProfile = {
+        uid: result.user.uid,
+        displayName: result.user.displayName || 'Caçador',
+        email: result.user.email || null,
+        photoURL: result.user.photoURL || null,
+      };
+      setStoredUserProfile(simpleUser);
+
+      return {
+        user: simpleUser,
+        accessToken: token,
+      };
+    } catch (firebaseError: any) {
+      console.error('Erro também no Firebase Auth:', firebaseError);
+
+      if (firebaseError?.code === 'auth/popup-blocked') {
+        throw new Error('O navegador bloqueou o pop-up do Google. Por favor, permita pop-ups neste site.');
+      }
+      if (firebaseError?.code === 'auth/popup-closed-by-user') {
+        throw new Error('A janela do Google foi fechada antes de concluir.');
+      }
+      if (firebaseError?.code === 'auth/unauthorized-domain') {
+        const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'oevidente.github.io';
+        throw new Error(`Domínio "${currentHost}" não autorizado no Firebase. Use a autenticação direta do Google ou o Backup Local (JSON).`);
+      }
+
+      // Lança a mensagem mais compreensível entre os dois erros
+      throw new Error(gisError.message || firebaseError.message || 'Falha ao autenticar com o Google.');
     }
-    if (
-      error?.code === 'auth/invalid-api-key' ||
-      error?.code === 'auth/api-key-not-valid' ||
-      error?.code === 'auth/configuration-not-found'
-    ) {
-      throw new Error('Credenciais de API do Firebase não configuradas ou inválidas. Você pode configurá-las na aba "Configurações" ou usar o Backup por Arquivo Local (JSON) imediatamente sem custo.');
-    }
-    if (error?.code === 'auth/unauthorized-domain') {
-      const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'seu-dominio';
-      throw new Error(`O domínio "${currentHost}" não está na lista de Domínios Autorizados do Firebase Authentication. Para liberar, adicione "${currentHost}" em Firebase Console ➔ Authentication ➔ Settings ➔ Authorized Domains.`);
-    }
-    
-    throw error;
   }
 }
 
@@ -269,7 +425,10 @@ export async function loginWithGoogle(): Promise<{ user: User; accessToken: stri
 export async function logoutUser(): Promise<void> {
   cachedAccessToken = null;
   setStoredAccessToken(null);
+  setStoredUserProfile(null);
   if (auth) {
-    await signOut(auth);
+    try {
+      await signOut(auth);
+    } catch {}
   }
 }

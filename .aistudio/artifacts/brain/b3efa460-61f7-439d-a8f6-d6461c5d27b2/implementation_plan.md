@@ -1,48 +1,73 @@
-# Plano de Implementação: Sincronização Automática Multi-dispositivo com Firebase
+# Plano de Migração: Backup e Sincronização via Google Drive 🛡️📂
 
-## 1. Contexto e Objetivos
-Atualmente, o app possui salvamento local em `localStorage` e suporte inicial ao Firebase, mas o progresso não sincroniza automaticamente entre diferentes dispositivos (PC, celular Android, etc.), exigindo exportação/importação manual via JSON. Além disso, é necessário garantir:
-- **Login com Google** simples e direto.
-- **Detecção de novo dispositivo / conflito de dados**: perguntar ao usuário se deseja **Baixar da Nuvem** ou **Manter dados locais (e enviá-los para a nuvem)**.
-- **Economia rigorosa de cotas do Firestore**: estruturar o salvamento em documento único compactado por usuário com salvamento automático com *debounce* (espera alguns segundos após alterações para gravar), evitando leituras/escritas repetitivas e mantendo o app 100% no tier gratuito.
-- **Compatibilidade total**: PWA instalável, offline-first e pronto para GitHub Pages.
+## 1. Visão Geral
+Substituiremos a persistência anterior do Firestore pela integração direta com a **Google Drive API (v3)** via **Google Workspace OAuth (Firebase Auth + Drive File Scope)**. 
+
+### Vantagens:
+- **Zero custo / Zero estouro de cota**: Utiliza o armazenamento do Google Drive do próprio usuário.
+- **Arquivo Único e Limpo**: O save será gravado em `hunter_save.json` dentro da pasta `Solo Leveling - Hunter System` no Google Drive, sendo sobrescrito nas atualizações sem gerar arquivos duplicados (como `backup(1).json`).
+- **Controle Total (Manual)**: Botões dedicados e intuitivos para **"Salvar no Drive"** e **"Restaurar do Drive"** com confirmação e resumo de status.
+- **100% Compatível com GitHub Pages & PWA**: Operação client-side com token OAuth em memória e persistência local `localStorage` de alta velocidade.
 
 ---
 
-## 2. Etapas de Desenvolvimento
+## 2. Arquitetura e Fluxo de Dados
 
-### Etapa 1: Refatoração do Serviço Firebase (`src/services/firebase.ts`)
-- Configurar autenticação com Google (`GoogleAuthProvider` + `signInWithPopup` / `signInWithRedirect` para PWA mobile).
-- Criar métodos dedicados de sincronização:
-  - `fetchCloudProgress(userId)`: busca os dados mais recentes da nuvem em documento único `users/{uid}/game/data`.
-  - `saveCloudProgress(userId, data)`: grava com timestamp `updatedAt`.
-  - Escuta em tempo real opcional ou verificação na inicialização e retorno de foco da aba/app.
-- Adicionar debouncing automático para envio à nuvem após mudanças no jogo (evitando flood de escritas).
+```
+[ Local-First State (LocalStorage) ]
+            │
+            ├──── [ 📤 Salvar no Drive ] ────► Procura pasta "Solo Leveling - Hunter System"
+            │                                 │  ├─ Se não existir: Cria pasta
+            │                                 └─ Se existir "hunter_save.json": Atualiza (PATCH)
+            │                                    Se não existir: Cria (POST multipart)
+            │
+            └──── [ 📥 Restaurar do Drive ] ◄── Localiza "hunter_save.json" e baixa (?alt=media)
+                                              │  └─ Exibe diálogo de confirmação com dados (Nível, EXP, Quests)
+                                              └─ Atualiza estado do Caçador + localStorage
+```
 
-### Etapa 2: Modal de Resolução de Conflito de Dados (`SyncConflictModal.tsx`)
-- Ao logar com Google em um novo dispositivo ou detectar diferença relevante entre nuvem e local:
-  - Exibir modal com comparativo detalhado:
-    - **Nuvem**: Nível, EXP, Quests ativas/concluídas, data da última alteração.
-    - **Este Dispositivo**: Nível, EXP, Quests ativas/concluídas, data da última alteração.
-  - Duas ações claras:
-    1. **📥 Baixar da Nuvem**: Substitui os dados locais pelos dados salvos na nuvem.
-    2. **🚀 Manter Dados Deste Dispositivo**: Substitui os dados da nuvem pelos dados deste aparelho.
+---
 
-### Etapa 3: Integração no Loop Principal (`src/App.tsx` e `TopBar.tsx`)
-- Observar o estado de autenticação do Firebase (`onAuthStateChanged`).
-- Ao autenticar:
-  - Verificar se já existe save na nuvem.
-  - Se a nuvem estiver vazia, faz o primeiro upload automático do progresso local.
-  - Se a nuvem tiver dados e os dados locais forem os padrão (novo dispositivo/navegador limpo), baixa automaticamente ou exibe o modal se houver progresso local relevante.
-  - Se houver progresso tanto local quanto na nuvem, dispara o diálogo de escolha.
-- Indicador discreto no `TopBar`:
-  - Avatar / Email do Google conectado.
-  - Status do Sync: "Nuvem Sincronizada ☁️✓", "Salvando...", ou "Offline / Local".
-  - Botão de "Sincronizar Agora" e "Desconectar".
+## 3. Etapas de Implementação
 
-### Etapa 4: Validação de Regras do Firestore (`firestore.rules`)
-- Garantir regras de segurança estritas permitindo que apenas o usuário autenticado (`request.auth.uid == userId`) possa ler e escrever em seus próprios dados.
+### Etapa 1: Configuração do OAuth e Escopo do Google Drive
+- Configurar OAuth com o escopo de menor privilégio necessário:
+  - `https://www.googleapis.com/auth/drive.file` (Permite que o app crie a pasta, leia e atualize apenas os arquivos criados pelo próprio app no Google Drive do usuário).
+- Gerenciamento de token de acesso em memória (sem gravar credenciais em `localStorage`).
 
-### Etapa 5: Testes e Validação de Compilação
-- Verificar compilação com `compile_applet`.
-- Testar fluxos de login, salvamento automático, recarregamento e alternância de estado online/offline.
+### Etapa 2: Serviço do Google Drive (`src/services/googleDrive.ts`)
+- **`getOrCreateBackupFolder(accessToken)`**: Verifica se a pasta `Solo Leveling - Hunter System` existe no Drive raiz (`trashed = false`); se não, cria a pasta.
+- **`findBackupFile(accessToken, folderId)`**: Busca pelo arquivo `hunter_save.json` dentro da pasta dedicada.
+- **`saveToGoogleDrive(player, quests, accessToken)`**:
+  - Prepara o payload JSON com metadados do Caçador.
+  - Se o arquivo já existir: executa requisição `PATCH /upload/drive/v3/files/{fileId}?uploadType=media` para sobrescrever o conteúdo diretamente.
+  - Se não existir: executa requisição `POST /upload/drive/v3/files?uploadType=multipart` para criar o arquivo dentro da pasta.
+- **`fetchFromGoogleDrive(accessToken)`**:
+  - Obtém metadados do arquivo (data da última modificação, tamanho) e o conteúdo JSON via `GET /drive/v3/files/{fileId}?alt=media`.
+- **`formatDriveDate(dateString)`**: Formatação amigável de data e hora para exibição na interface.
+
+### Etapa 3: Interface do Modal de Nuvem & Backup (`CloudBackupModal.tsx`)
+- Substituir a aba do Firebase por um painel moderno e temático de **Google Drive**:
+  - **Status da Conexão**: Cartão com estilo oficial "Conectar com Google", exibindo foto/nome/email do usuário logado.
+  - **Ação 1: 📤 Salvar no Google Drive**:
+    - Botão com feedback sonoro e visual.
+    - Exibe status e timestamp da última gravação efetuada no Drive.
+    - Confirmação visual de sucesso ou erro claro.
+  - **Ação 2: 📥 Restaurar do Google Drive**:
+    - Consulta o arquivo existente na nuvem e mostra um resumo comparativo antes de aplicar (Nível no Drive vs Nível atual, Quests concluídas).
+    - Diálogo de confirmação para prevenir perda acidental de dados locais mais recentes.
+  - **Ação 3: 💾 Backup Local em JSON**: Mantido como alternativa offline imediata (Download do arquivo .json e Upload manual de arquivo .json).
+
+### Etapa 4: Atualização da Barra Superior (`TopBar.tsx`) e `App.tsx`
+- Indicador elegante de conexão com o Google Drive no `TopBar`.
+- Remoção do código legado do Firestore (`firestore.rules`, endpoints legados do Firestore), limpando a base para ser mais leve e rápida.
+- Teste de responsividade em mobile e desktop.
+
+---
+
+## 4. Verificação e Testes
+1. **Compilação**: Execução de `compile_applet` e verificação de tipagem TypeScript.
+2. **Fluxo de Autenticação**: Conexão/desconexão com Google.
+3. **Fluxo de Salvamento**: Criação da pasta no Drive e substituição do arquivo `hunter_save.json` sem duplicação.
+4. **Fluxo de Restauração**: Leitura do JSON no Drive, comparação de dados e carregamento no jogo.
+5. **Garantia Offline / Local**: Funcionamento normal do app sem login, usando localStorage.

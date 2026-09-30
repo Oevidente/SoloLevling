@@ -1,32 +1,43 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Cloud, 
   Download, 
   Upload, 
-  Settings, 
   Check, 
   AlertTriangle, 
-  ExternalLink, 
-  Copy, 
-  Trash2, 
   X,
   FileJson,
   ShieldCheck,
-  KeyRound,
   RefreshCw,
+  FolderSync,
+  HardDrive,
+  Sparkles,
+  ArrowRight,
+  ExternalLink,
+  Settings,
+  LogIn,
+  LogOut,
+  Info
 } from 'lucide-react';
+import { PlayerProfile, Quest } from '../types/hunter';
+import { soundEffects } from '../services/soundEffects';
+import { 
+  saveToGoogleDrive, 
+  loadFromGoogleDrive, 
+  getDriveBackupMetadata,
+  formatDriveTimestamp,
+  formatBytes,
+  DriveFileInfo,
+  HunterDriveSaveData,
+  DRIVE_FOLDER_NAME,
+  DRIVE_FILE_NAME
+} from '../services/googleDrive';
 import { 
   getStoredFirebaseConfig, 
   saveStoredFirebaseConfig, 
   clearStoredFirebaseConfig, 
-  isFirebaseConfigured,
   currentFirebaseConfig,
-  formatFirestoreError,
-  testFirestoreConnection,
-  FirebaseCustomConfig 
+  FirebaseCustomConfig
 } from '../services/firebase';
-import { PlayerProfile, Quest } from '../types/hunter';
-import { soundEffects } from '../services/soundEffects';
 
 interface CloudBackupModalProps {
   isOpen: boolean;
@@ -34,13 +45,13 @@ interface CloudBackupModalProps {
   player: PlayerProfile;
   quests: Quest[];
   onImportData: (importedPlayer: PlayerProfile, importedQuests: Quest[]) => void;
-  onTriggerGoogleLogin: () => void;
+  onTriggerGoogleLogin: () => Promise<void>;
+  onTriggerGoogleLogout: () => Promise<void>;
   isLoggedIn: boolean;
   userEmail?: string | null;
-  authError?: string | null;
-  initialTab?: 'backup' | 'firebase';
-  onForcePullFromCloud?: () => Promise<void>;
-  onForceSyncToCloud?: () => Promise<void>;
+  userName?: string | null;
+  userPhoto?: string | null;
+  accessToken: string | null;
 }
 
 export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
@@ -50,45 +61,149 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
   quests,
   onImportData,
   onTriggerGoogleLogin,
+  onTriggerGoogleLogout,
   isLoggedIn,
   userEmail,
-  authError,
-  initialTab = 'backup',
-  onForcePullFromCloud,
-  onForceSyncToCloud,
+  userName,
+  userPhoto,
+  accessToken,
 }) => {
-  const [activeTab, setActiveTab] = useState<'backup' | 'firebase'>(initialTab);
-  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
-  const [cloudSyncMsg, setCloudSyncMsg] = useState<string | null>(null);
-
-  React.useEffect(() => {
-    if (authError || initialTab === 'firebase') {
-      setActiveTab('firebase');
-    }
-  }, [authError, initialTab, isOpen]);
+  const [activeTab, setActiveTab] = useState<'drive' | 'local' | 'config'>('drive');
   
-  // Estados para configuração do Firebase
+  // Status de operações do Google Drive
+  const [isCheckingDrive, setIsCheckingDrive] = useState(false);
+  const [driveFileInfo, setDriveFileInfo] = useState<DriveFileInfo | null>(null);
+  const [driveCheckedOnce, setDriveCheckedOnce] = useState(false);
+  
+  const [isSavingDrive, setIsSavingDrive] = useState(false);
+  const [isLoadingDrive, setIsLoadingDrive] = useState(false);
+  const [driveFeedback, setDriveFeedback] = useState<{ status: 'success' | 'error' | 'info'; message: string } | null>(null);
+
+  // Confirmação para sobrescrever dados locais com os dados do Drive
+  const [pendingRestoreData, setPendingRestoreData] = useState<{ data: HunterDriveSaveData; fileInfo: DriveFileInfo } | null>(null);
+  const [isConfirmingRestore, setIsConfirmingRestore] = useState(false);
+
+  // Confirmação para sobrescrever arquivo no Drive
+  const [isConfirmingDriveOverwrite, setIsConfirmingDriveOverwrite] = useState(false);
+
+  // Importação Local
+  const [importFeedback, setImportFeedback] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Configuração Manual Opcional
   const initialConfig = getStoredFirebaseConfig() || currentFirebaseConfig;
   const [apiKey, setApiKey] = useState(initialConfig.apiKey || '');
-  const [authDomain, setAuthDomain] = useState(initialConfig.authDomain || '');
   const [projectId, setProjectId] = useState(initialConfig.projectId || '');
   const [appId, setAppId] = useState(initialConfig.appId || '');
-  const [storageBucket, setStorageBucket] = useState(initialConfig.storageBucket || '');
-  const [messagingSenderId, setMessagingSenderId] = useState(initialConfig.messagingSenderId || '');
-  const [jsonPaste, setJsonPaste] = useState('');
-  
-  const [copyFeedback, setCopyFeedback] = useState(false);
-  const [copyRulesFeedback, setCopyRulesFeedback] = useState(false);
-  const [saveSuccessFeedback, setSaveSuccessFeedback] = useState(false);
-  const [importFeedback, setImportFeedback] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
-  const [isTestingConn, setIsTestingConn] = useState(false);
-  const [testConnResult, setTestConnResult] = useState<{ success: boolean; message: string } | null>(null);
-  
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [authDomain, setAuthDomain] = useState(initialConfig.authDomain || '');
+  const [configSuccessFeedback, setConfigSuccessFeedback] = useState(false);
+
+  // Checa informações do arquivo no Drive ao abrir o modal com login ativo
+  useEffect(() => {
+    if (isOpen && isLoggedIn && accessToken) {
+      checkDriveMetadata();
+    }
+  }, [isOpen, isLoggedIn, accessToken]);
+
+  const checkDriveMetadata = async () => {
+    if (!accessToken) return;
+    setIsCheckingDrive(true);
+    setDriveFeedback(null);
+    try {
+      const meta = await getDriveBackupMetadata(accessToken);
+      setDriveFileInfo(meta.fileInfo);
+      setDriveCheckedOnce(true);
+    } catch (err: any) {
+      console.warn('Erro ao consultar Drive:', err);
+    } finally {
+      setIsCheckingDrive(false);
+    }
+  };
 
   if (!isOpen) return null;
 
-  // 1. Exportar dados como JSON
+  // 1. Salvar no Google Drive
+  const handleExecuteSaveToDrive = async () => {
+    if (!accessToken) {
+      setDriveFeedback({
+        status: 'error',
+        message: 'Você precisa estar conectado com sua Conta Google para salvar no Drive.',
+      });
+      return;
+    }
+
+    setIsSavingDrive(true);
+    setDriveFeedback(null);
+    setIsConfirmingDriveOverwrite(false);
+
+    try {
+      const result = await saveToGoogleDrive(accessToken, player, quests);
+      soundEffects.playLevelUp();
+      setDriveFileInfo({
+        id: result.fileId,
+        name: DRIVE_FILE_NAME,
+        modifiedTime: result.modifiedTime,
+        size: String(result.size),
+      });
+      setDriveFeedback({
+        status: 'success',
+        message: `Backup salvo com sucesso na pasta "${DRIVE_FOLDER_NAME}" do seu Google Drive! O arquivo foi atualizado sem duplicatas.`,
+      });
+    } catch (err: any) {
+      soundEffects.playAlertNotice();
+      setDriveFeedback({
+        status: 'error',
+        message: err.message || 'Falha ao salvar no Google Drive. Verifique sua conexão e tente novamente.',
+      });
+    } finally {
+      setIsSavingDrive(false);
+    }
+  };
+
+  // 2. Pré-visualizar restauração do Google Drive
+  const handleInitiateRestoreFromDrive = async () => {
+    if (!accessToken) {
+      setDriveFeedback({
+        status: 'error',
+        message: 'Você precisa estar conectado com sua Conta Google para restaurar do Drive.',
+      });
+      return;
+    }
+
+    setIsLoadingDrive(true);
+    setDriveFeedback(null);
+
+    try {
+      const { data, fileInfo } = await loadFromGoogleDrive(accessToken);
+      soundEffects.playSystemBeep();
+      setPendingRestoreData({ data, fileInfo });
+      setIsConfirmingRestore(true);
+    } catch (err: any) {
+      soundEffects.playAlertNotice();
+      setDriveFeedback({
+        status: 'error',
+        message: err.message || 'Falha ao ler o backup do Google Drive.',
+      });
+    } finally {
+      setIsLoadingDrive(false);
+    }
+  };
+
+  // 3. Confirmar e aplicar a restauração
+  const handleConfirmRestore = () => {
+    if (!pendingRestoreData) return;
+    const { data } = pendingRestoreData;
+    onImportData(data.player, data.quests);
+    soundEffects.playQuestComplete();
+    setIsConfirmingRestore(false);
+    setPendingRestoreData(null);
+    setDriveFeedback({
+      status: 'success',
+      message: `Save restaurado com sucesso! Nível ${data.player.level} (${data.quests.length} missões carregadas).`,
+    });
+  };
+
+  // 4. Exportar arquivo JSON local
   const handleExportJson = () => {
     soundEffects.playSystemBeep();
     const dataToExport = {
@@ -110,7 +225,7 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  // 2. Importar arquivo JSON
+  // 5. Importar arquivo JSON local
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -129,13 +244,13 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
         soundEffects.playQuestComplete();
         setImportFeedback({
           status: 'success',
-          message: `Backup restaurado com sucesso! Nível ${parsed.player.level} (${parsed.quests.length} missões).`,
+          message: `Backup local restaurado com sucesso! Nível ${parsed.player.level} (${parsed.quests.length} missões).`,
         });
       } catch (err: any) {
         soundEffects.playAlertNotice();
         setImportFeedback({
           status: 'error',
-          message: err.message || 'Falha ao ler o arquivo JSON.',
+          message: err.message || 'Falha ao ler o arquivo JSON selecionado.',
         });
       }
     };
@@ -143,615 +258,590 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // 3. Salvar configurações manuais do Firebase
-  const handleSaveFirebaseConfig = () => {
+  // 6. Salvar configuração manual
+  const handleSaveConfig = () => {
     soundEffects.playSystemBeep();
-    
-    // Tenta interpretar jsonPaste se preenchido
-    let finalApiKey = apiKey.trim();
-    let finalAuthDomain = authDomain.trim();
-    let finalProjectId = projectId.trim();
-    let finalAppId = appId.trim();
-    let finalStorageBucket = storageBucket.trim();
-    let finalSenderId = messagingSenderId.trim();
-
-    if (jsonPaste.trim()) {
-      try {
-        const cleaned = jsonPaste
-          .replace(/(const|var|let)?\s*firebaseConfig\s*=\s*/g, '')
-          .replace(/;\s*$/g, '');
-        const parsed = JSON.parse(cleaned);
-        if (parsed.apiKey) finalApiKey = parsed.apiKey;
-        if (parsed.authDomain) finalAuthDomain = parsed.authDomain;
-        if (parsed.projectId) finalProjectId = parsed.projectId;
-        if (parsed.appId) finalAppId = parsed.appId;
-        if (parsed.storageBucket) finalStorageBucket = parsed.storageBucket;
-        if (parsed.messagingSenderId) finalSenderId = parsed.messagingSenderId;
-      } catch {
-        // Tentar regex simples em caso de objeto JS não formatado estritamente como JSON
-        const matchKey = jsonPaste.match(/apiKey:\s*["']([^"']+)["']/);
-        const matchAuth = jsonPaste.match(/authDomain:\s*["']([^"']+)["']/);
-        const matchProject = jsonPaste.match(/projectId:\s*["']([^"']+)["']/);
-        const matchApp = jsonPaste.match(/appId:\s*["']([^"']+)["']/);
-        
-        if (matchKey) finalApiKey = matchKey[1];
-        if (matchAuth) finalAuthDomain = matchAuth[1];
-        if (matchProject) finalProjectId = matchProject[1];
-        if (matchApp) finalAppId = matchApp[1];
-      }
-    }
-
-    const newCfg: FirebaseCustomConfig = {
-      apiKey: finalApiKey,
-      authDomain: finalAuthDomain || (finalProjectId ? `${finalProjectId}.firebaseapp.com` : ''),
-      projectId: finalProjectId,
-      appId: finalAppId,
-      storageBucket: finalStorageBucket,
-      messagingSenderId: finalSenderId,
-      firestoreDatabaseId: '(default)', // Garante uso da base padrão em projetos Firebase normais
-    };
-
-    saveStoredFirebaseConfig(newCfg);
-    setSaveSuccessFeedback(true);
+    saveStoredFirebaseConfig({
+      projectId: projectId.trim(),
+      apiKey: apiKey.trim(),
+      appId: appId.trim(),
+      authDomain: authDomain.trim(),
+    });
+    setConfigSuccessFeedback(true);
     setTimeout(() => {
-      // Recarregar a página para aplicar a nova inicialização do Firebase com as chaves corretas
       window.location.reload();
-    }, 1200);
-  };
-
-  const handleClearConfig = () => {
-    if (window.confirm('Deseja remover as chaves salvas do Firebase deste navegador?')) {
-      clearStoredFirebaseConfig();
-      window.location.reload();
-    }
-  };
-
-  const copyDomain = () => {
-    navigator.clipboard.writeText(window.location.hostname);
-    setCopyFeedback(true);
-    setTimeout(() => setCopyFeedback(false), 2000);
-  };
-
-  const copyRules = () => {
-    const rulesText = `rules_version = '2';\n\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /users/{userId} {\n      allow read, write: if request.auth != null && request.auth.uid == userId;\n      match /{allPaths=**} {\n        allow read, write: if request.auth != null && request.auth.uid == userId;\n      }\n    }\n  }\n}`;
-    navigator.clipboard.writeText(rulesText);
-    setCopyRulesFeedback(true);
-    setTimeout(() => setCopyRulesFeedback(false), 2000);
-  };
-
-  const handleTestConnection = async () => {
-    setIsTestingConn(true);
-    setTestConnResult(null);
-    soundEffects.playSystemBeep();
-    try {
-      const res = await testFirestoreConnection(player.userId || 'hunter_user');
-      setTestConnResult(res);
-      if (res.success) {
-        soundEffects.playQuestComplete();
-      } else {
-        soundEffects.playAlertNotice();
-      }
-    } catch (err: any) {
-      setTestConnResult({
-        success: false,
-        message: formatFirestoreError(err),
-      });
-      soundEffects.playAlertNotice();
-    } finally {
-      setIsTestingConn(false);
-    }
+    }, 800);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-xl bg-[#030d06] border border-emerald-500/40 rounded-2xl shadow-[0_0_40px_rgba(16,185,129,0.25)] flex flex-col max-h-[92vh] overflow-hidden">
-        
-        {/* Header do Modal */}
-        <div className="px-5 py-4 border-b border-emerald-500/20 flex items-center justify-between bg-emerald-950/20">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-400/40 text-emerald-400">
-              <Cloud className="w-5 h-5" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-3 sm:p-4 overflow-y-auto">
+      <div 
+        className="relative w-full max-w-2xl bg-[#030d06] border border-emerald-500/50 rounded-2xl shadow-[0_0_50px_rgba(16,185,129,0.25)] flex flex-col max-h-[92vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cloud-backup-title"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-emerald-500/30 bg-emerald-950/20">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-emerald-500/20 border border-emerald-400/50 text-emerald-400 shadow-[0_0_15px_rgba(34,197,94,0.3)]">
+              <FolderSync className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="font-display font-black text-slate-100 text-base sm:text-lg tracking-wide uppercase">
-                Sincronização & Salvamento
+              <h2 id="cloud-backup-title" className="text-base sm:text-lg font-black tracking-wider text-slate-100 uppercase flex items-center gap-2">
+                Central de Backup <span className="text-emerald-400 neon-text-green">& Google Drive</span>
               </h2>
-              <p className="text-xs text-slate-400">
-                Garantia de persistência total e integração de nuvem
+              <p className="text-[11px] sm:text-xs text-slate-400 font-mono">
+                Armazenamento seguro, sem duplicação de arquivos e 100% gratuito
               </p>
             </div>
           </div>
           <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors cursor-pointer"
-            aria-label="Fechar"
+            onClick={() => {
+              soundEffects.playSystemBeep();
+              onClose();
+            }}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-300 hover:bg-emerald-950/40 border border-transparent hover:border-emerald-500/40 transition-all cursor-pointer"
+            aria-label="Fechar modal"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Abas Superiores */}
-        <div className="flex border-b border-emerald-500/20 bg-slate-950/60 px-5 pt-2 gap-2 text-xs font-bold uppercase tracking-wider">
+        {/* Abas de Navegação */}
+        <div className="flex border-b border-emerald-500/20 bg-emerald-950/10 px-4 pt-2 gap-2">
           <button
-            onClick={() => setActiveTab('backup')}
-            className={`pb-2.5 px-3 border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
-              activeTab === 'backup'
-                ? 'border-emerald-400 text-emerald-300'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+            onClick={() => {
+              soundEffects.playSystemBeep();
+              setActiveTab('drive');
+            }}
+            className={`px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-t-lg transition-all flex items-center gap-2 cursor-pointer ${
+              activeTab === 'drive'
+                ? 'bg-emerald-500/20 text-emerald-300 border-t border-x border-emerald-400/60'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-emerald-950/30'
             }`}
           >
-            <FileJson className="w-4 h-4" />
-            <span>Backup Manual (Arquivo)</span>
+            <HardDrive className="w-3.5 h-3.5" />
+            <span>Google Drive</span>
           </button>
 
           <button
-            onClick={() => setActiveTab('firebase')}
-            className={`pb-2.5 px-3 border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
-              activeTab === 'firebase'
-                ? 'border-emerald-400 text-emerald-300'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+            onClick={() => {
+              soundEffects.playSystemBeep();
+              setActiveTab('local');
+            }}
+            className={`px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-t-lg transition-all flex items-center gap-2 cursor-pointer ${
+              activeTab === 'local'
+                ? 'bg-emerald-500/20 text-emerald-300 border-t border-x border-emerald-400/60'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-emerald-950/30'
             }`}
           >
-            <KeyRound className="w-4 h-4" />
-            <span>Configurar Google / Firebase</span>
+            <FileJson className="w-3.5 h-3.5" />
+            <span>Arquivo Local (JSON)</span>
+          </button>
+
+          <button
+            onClick={() => {
+              soundEffects.playSystemBeep();
+              setActiveTab('config');
+            }}
+            className={`ml-auto px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-t-lg transition-all flex items-center gap-2 cursor-pointer ${
+              activeTab === 'config'
+                ? 'bg-emerald-500/20 text-emerald-300 border-t border-x border-emerald-400/60'
+                : 'text-slate-500 hover:text-slate-300'
+            }`}
+            title="Configurações avançadas de conexão"
+          >
+            <Settings className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Configurações</span>
           </button>
         </div>
 
-        {/* Conteúdo com rolagem */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-5 text-sm">
+        {/* Conteúdo do Modal */}
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-5">
           
-          {activeTab === 'backup' && (
+          {/* ========================================================
+              ABA 1: GOOGLE DRIVE (Principal)
+              ======================================================== */}
+          {activeTab === 'drive' && (
             <div className="space-y-4">
               
-              {/* Aviso de salvamento local constante */}
-              <div className="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 flex items-start gap-3 text-xs text-emerald-300/90 leading-relaxed">
-                <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-                <div>
-                  <strong className="text-emerald-300 block mb-0.5">Salvamento Local Ativo:</strong>
-                  Seu progresso (missões, níveis, itens e status) é gravado automaticamente no armazenamento do navegador a cada ação. O backup manual em arquivo garante que você nunca perca nada, mesmo trocando de celular ou limpando os dados.
+              {/* Card de Conexão com Google */}
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-emerald-500/30">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    {isLoggedIn && userPhoto ? (
+                      <img
+                        src={userPhoto}
+                        alt={userName || 'Caçador'}
+                        className="w-10 h-10 rounded-full border border-emerald-400 object-cover shadow-[0_0_10px_rgba(34,197,94,0.4)]"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-emerald-950/80 border border-emerald-400 text-emerald-300 flex items-center justify-center font-bold text-sm">
+                        {isLoggedIn ? (userName ? userName[0] : 'G') : 'G'}
+                      </div>
+                    )}
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-slate-100">
+                          {isLoggedIn ? userName || 'Conta Google Conectada' : 'Google Drive Desconectado'}
+                        </span>
+                        {isLoggedIn && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center gap-1">
+                            <Check className="w-2.5 h-2.5" /> Conectado
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-400 font-mono">
+                        {isLoggedIn ? userEmail : 'Faça login para salvar seus dados diretamente no seu Drive'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    {isLoggedIn ? (
+                      <button
+                        onClick={onTriggerGoogleLogout}
+                        className="px-3 py-1.5 text-xs font-bold text-rose-300 hover:text-rose-100 bg-rose-950/30 hover:bg-rose-900/40 border border-rose-500/40 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        <span>Desconectar</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={onTriggerGoogleLogin}
+                        className="w-full sm:w-auto px-4 py-2 text-xs font-black uppercase tracking-wider text-slate-950 bg-emerald-400 hover:bg-emerald-300 rounded-lg transition-all shadow-[0_0_15px_rgba(34,197,94,0.4)] flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <LogIn className="w-4 h-4" />
+                        <span>Conectar com Google</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* Bloco 1: Exportar */}
-              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-slate-200 font-bold">
-                    <Download className="w-4 h-4 text-emerald-400" />
-                    <span>Exportar Progresso Atual</span>
+              {/* Informações da Pasta & Arquivo no Drive */}
+              {isLoggedIn && (
+                <div className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/30 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-bold text-emerald-300 uppercase tracking-wider">
+                      <FolderSync className="w-4 h-4 text-emerald-400" />
+                      <span>Destino no Google Drive</span>
+                    </div>
+                    <button
+                      onClick={checkDriveMetadata}
+                      disabled={isCheckingDrive}
+                      className="text-[11px] text-slate-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      title="Atualizar status do arquivo no Drive"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isCheckingDrive ? 'animate-spin' : ''}`} />
+                      <span>Verificar</span>
+                    </button>
                   </div>
-                  <span className="text-[11px] font-mono text-slate-400">
-                    {quests.length} missões · Nv {player.level}
-                  </span>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
+                    <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800">
+                      <span className="text-slate-400 text-[10px] uppercase block">Pasta Dedicada:</span>
+                      <span className="text-slate-200 font-bold flex items-center gap-1 mt-0.5">
+                        📁 {DRIVE_FOLDER_NAME}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800">
+                      <span className="text-slate-400 text-[10px] uppercase block">Arquivo Principal:</span>
+                      <span className="text-slate-200 font-bold flex items-center gap-1 mt-0.5">
+                        📄 {DRIVE_FILE_NAME}
+                      </span>
+                    </div>
+                  </div>
+
+                  {driveCheckedOnce && (
+                    <div className="text-[11px] font-mono text-slate-300 bg-slate-900/80 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+                      <div>
+                        {driveFileInfo ? (
+                          <>
+                            <span className="text-emerald-400 font-bold">✓ Backup encontrado no Drive</span>
+                            <span className="text-slate-400 block text-[10px]">
+                              Última gravação: {formatDriveTimestamp(driveFileInfo.modifiedTime)} ({formatBytes(driveFileInfo.size)})
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-amber-400">
+                            Nenhum backup encontrado ainda no Drive. Clique em "Salvar no Drive" para criar o primeiro.
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <p className="text-xs text-slate-400">
-                  Baixe um arquivo <code className="text-emerald-400">.json</code> seguro contendo todos os seus dados. Não gasta cotas de banco de dados e funciona 100% offline.
+              )}
+
+              {/* Botões Principais de Ação */}
+              {isLoggedIn ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  
+                  {/* Botão 1: Salvar no Google Drive */}
+                  <button
+                    onClick={() => {
+                      if (driveFileInfo) {
+                        setIsConfirmingDriveOverwrite(true);
+                      } else {
+                        handleExecuteSaveToDrive();
+                      }
+                    }}
+                    disabled={isSavingDrive || isLoadingDrive}
+                    className="p-4 rounded-xl bg-gradient-to-b from-emerald-900/40 to-emerald-950/60 border border-emerald-400/60 hover:border-emerald-300 text-left transition-all hover:shadow-[0_0_20px_rgba(34,197,94,0.3)] disabled:opacity-50 cursor-pointer group"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400 group-hover:bg-emerald-400 group-hover:text-slate-950 transition-colors">
+                        {isSavingDrive ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
+                      </div>
+                      <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-950 px-2 py-0.5 rounded border border-emerald-500/40">
+                        {driveFileInfo ? 'SOBRESCREVER' : 'CRIAR SAVE'}
+                      </span>
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-100 group-hover:text-emerald-300 transition-colors">
+                      {isSavingDrive ? 'Salvando no Drive...' : 'Salvar no Google Drive'}
+                    </h3>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Grava seu progresso atual (Nível {player.level}, {quests.length} missões) sem duplicar arquivos.
+                    </p>
+                  </button>
+
+                  {/* Botão 2: Restaurar do Google Drive */}
+                  <button
+                    onClick={handleInitiateRestoreFromDrive}
+                    disabled={isSavingDrive || isLoadingDrive}
+                    className="p-4 rounded-xl bg-gradient-to-b from-cyan-900/30 to-slate-950 border border-cyan-500/40 hover:border-cyan-300 text-left transition-all hover:shadow-[0_0_20px_rgba(6,182,212,0.25)] disabled:opacity-50 cursor-pointer group"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="p-2 rounded-lg bg-cyan-500/20 text-cyan-400 group-hover:bg-cyan-400 group-hover:text-slate-950 transition-colors">
+                        {isLoadingDrive ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
+                      </div>
+                      <span className="text-[10px] font-mono font-bold text-cyan-400 bg-cyan-950 px-2 py-0.5 rounded border border-cyan-500/40">
+                        BAIXAR & APLICAR
+                      </span>
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-100 group-hover:text-cyan-300 transition-colors">
+                      {isLoadingDrive ? 'Lendo do Drive...' : 'Restaurar do Google Drive'}
+                    </h3>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Carrega o backup salvo no Drive para este dispositivo com tela de comparação e confirmação.
+                    </p>
+                  </button>
+
+                </div>
+              ) : (
+                <div className="p-5 rounded-xl bg-slate-900/40 border border-slate-800 text-center space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-emerald-950/60 border border-emerald-400/40 text-emerald-400 mx-auto flex items-center justify-center">
+                    <ShieldCheck className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-200">
+                    Sincronização 100% no seu Google Drive
+                  </h3>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+                    Conecte sua conta do Google para gravar o save diretamente no seu Drive pessoal. Seus dados nunca passam por servidores de terceiros e ficam sempre sob seu controle.
+                  </p>
+                  <button
+                    onClick={onTriggerGoogleLogin}
+                    className="px-5 py-2.5 text-xs font-black uppercase tracking-wider text-slate-950 bg-emerald-400 hover:bg-emerald-300 rounded-lg transition-all shadow-[0_0_20px_rgba(34,197,94,0.4)] inline-flex items-center gap-2 cursor-pointer"
+                  >
+                    <LogIn className="w-4 h-4" />
+                    <span>Conectar com Google para Usar o Drive</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Feedbacks da Operação */}
+              {driveFeedback && (
+                <div className={`p-3.5 rounded-xl border flex items-start gap-2.5 text-xs animate-in fade-in duration-150 ${
+                  driveFeedback.status === 'success'
+                    ? 'bg-emerald-950/40 border-emerald-500/60 text-emerald-300'
+                    : driveFeedback.status === 'error'
+                    ? 'bg-rose-950/40 border-rose-500/60 text-rose-300'
+                    : 'bg-slate-900 border-slate-700 text-slate-300'
+                }`}>
+                  {driveFeedback.status === 'success' ? (
+                    <Check className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
+                  ) : driveFeedback.status === 'error' ? (
+                    <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+                  ) : (
+                    <Info className="w-4 h-4 shrink-0 text-slate-400 mt-0.5" />
+                  )}
+                  <div className="leading-relaxed">{driveFeedback.message}</div>
+                </div>
+              )}
+
+            </div>
+          )}
+
+          {/* ========================================================
+              ABA 2: ARQUIVO LOCAL (JSON)
+              ======================================================== */}
+          {activeTab === 'local' && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
+                <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                  <FileJson className="w-4 h-4 text-amber-400" />
+                  <span>Backup Manual em Arquivo (.json)</span>
+                </h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Ideal para quando você estiver totalmente sem internet ou quiser guardar uma cópia física do seu progresso no seu computador ou celular.
                 </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Exportar JSON */}
                 <button
                   onClick={handleExportJson}
-                  className="w-full py-2.5 px-4 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-400/60 text-emerald-200 font-bold uppercase tracking-wider text-xs transition-all flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.2)]"
+                  className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/40 hover:border-emerald-400 text-left transition-all hover:shadow-[0_0_15px_rgba(34,197,94,0.2)] cursor-pointer group"
                 >
-                  <Download className="w-4 h-4" />
-                  <span>Baixar Arquivo de Backup</span>
+                  <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400 w-fit mb-2 group-hover:bg-emerald-400 group-hover:text-slate-950 transition-colors">
+                    <Download className="w-5 h-5" />
+                  </div>
+                  <h4 className="text-sm font-bold text-slate-100 group-hover:text-emerald-300 transition-colors">
+                    Exportar Arquivo .JSON
+                  </h4>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Baixa o arquivo com seu Nível {player.level} ({quests.length} missões).
+                  </p>
+                </button>
+
+                {/* Importar JSON */}
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-4 rounded-xl bg-amber-950/20 border border-amber-500/40 hover:border-amber-400 text-left transition-all hover:shadow-[0_0_15px_rgba(245,158,11,0.2)] cursor-pointer group"
+                >
+                  <div className="p-2 rounded-lg bg-amber-500/20 text-amber-400 w-fit mb-2 group-hover:bg-amber-400 group-hover:text-slate-950 transition-colors">
+                    <Upload className="w-5 h-5" />
+                  </div>
+                  <h4 className="text-sm font-bold text-slate-100 group-hover:text-amber-300 transition-colors">
+                    Importar Arquivo .JSON
+                  </h4>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Seleciona um arquivo .json salvo anteriormente para carregar.
+                  </p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".json"
+                    className="hidden"
+                    onChange={handleFileUpload}
+                  />
                 </button>
               </div>
 
-              {/* Bloco 2: Importar */}
-              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-slate-200 font-bold">
-                    <Upload className="w-4 h-4 text-amber-400" />
-                    <span>Restaurar / Importar Backup</span>
-                  </div>
-                </div>
-                <p className="text-xs text-slate-400">
-                  Carregue um arquivo <code className="text-amber-400">.json</code> previamente exportado para restaurar ou transferir seus dados em qualquer dispositivo.
-                </p>
-
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  accept=".json,application/json"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                  id="import-backup-file"
-                />
-
-                <label
-                  htmlFor="import-backup-file"
-                  className="w-full py-2.5 px-4 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/60 text-amber-200 font-bold uppercase tracking-wider text-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Upload className="w-4 h-4" />
-                  <span>Selecionar Arquivo JSON</span>
-                </label>
-
-                {importFeedback && (
-                  <div
-                    className={`p-2.5 rounded-lg text-xs font-semibold flex items-center gap-2 ${
-                      importFeedback.status === 'success'
-                        ? 'bg-emerald-950/60 border border-emerald-500/50 text-emerald-300'
-                        : 'bg-rose-950/60 border border-rose-500/50 text-rose-300'
-                    }`}
-                  >
-                    {importFeedback.status === 'success' ? (
-                      <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                    ) : (
-                      <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                    )}
-                    <span>{importFeedback.message}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Bloco 3: Login Google Rápido */}
-              <div className="p-4 rounded-xl bg-slate-900/40 border border-slate-800/80 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-300">Conexão Nuvem Google:</span>
-                  {isLoggedIn ? (
-                    <span className="text-[11px] text-emerald-400 font-mono flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                      Conectado ({userEmail})
-                    </span>
+              {importFeedback && (
+                <div className={`p-3.5 rounded-xl border flex items-start gap-2.5 text-xs animate-in fade-in duration-150 ${
+                  importFeedback.status === 'success'
+                    ? 'bg-emerald-950/40 border-emerald-500/60 text-emerald-300'
+                    : 'bg-rose-950/40 border-rose-500/60 text-rose-300'
+                }`}>
+                  {importFeedback.status === 'success' ? (
+                    <Check className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
                   ) : (
-                    <span className="text-[11px] text-slate-500">Desconectado</span>
+                    <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
                   )}
+                  <div className="leading-relaxed">{importFeedback.message}</div>
                 </div>
-
-                {isLoggedIn && (
-                  <div className="pt-2 space-y-2.5">
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 bg-slate-950/60 p-2 rounded-lg border border-slate-800">
-                      <span>Projeto Firebase Ativo:</span>
-                      <span className="font-mono text-emerald-400 font-bold">
-                        {currentFirebaseConfig.projectId || 'Padrão'}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        disabled={isSyncingCloud}
-                        onClick={async () => {
-                          if (!onForcePullFromCloud) return;
-                          try {
-                            setIsSyncingCloud(true);
-                            setCloudSyncMsg('Buscando dados no Firestore...');
-                            soundEffects.playSystemBeep();
-                            await onForcePullFromCloud();
-                            setCloudSyncMsg('✓ Dados baixados da nuvem e restaurados neste aparelho com sucesso!');
-                          } catch (err: any) {
-                            setCloudSyncMsg(formatFirestoreError(err));
-                          } finally {
-                            setIsSyncingCloud(false);
-                          }
-                        }}
-                        className="py-2.5 px-2.5 rounded-lg bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500/50 text-emerald-300 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
-                      >
-                        <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCloud ? 'animate-spin' : ''}`} />
-                        <span>Baixar da Nuvem</span>
-                      </button>
-
-                      <button
-                        disabled={isSyncingCloud}
-                        onClick={async () => {
-                          if (!onForceSyncToCloud) return;
-                          try {
-                            setIsSyncingCloud(true);
-                            setCloudSyncMsg('Conectando ao Firestore e gravando progresso...');
-                            soundEffects.playSystemBeep();
-                            await onForceSyncToCloud();
-                            setCloudSyncMsg(`✓ Progresso atual (Nv ${player.level} - ${quests.length} missões) gravado na nuvem!`);
-                          } catch (err: any) {
-                            setCloudSyncMsg(formatFirestoreError(err));
-                          } finally {
-                            setIsSyncingCloud(false);
-                          }
-                        }}
-                        className="py-2.5 px-2.5 rounded-lg bg-sky-950/60 hover:bg-sky-900/60 border border-sky-500/50 text-sky-200 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
-                      >
-                        <Cloud className="w-3.5 h-3.5 text-sky-400" />
-                        <span>Subir pra Nuvem</span>
-                      </button>
-                    </div>
-
-                    <button
-                      disabled={isTestingConn}
-                      onClick={handleTestConnection}
-                      className="w-full py-2 px-3 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-700/80 text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${isTestingConn ? 'animate-spin' : ''}`} />
-                      <span>{isTestingConn ? 'Testando Conexão...' : 'Testar Conexão Direta com Firestore'}</span>
-                    </button>
-
-                    {testConnResult && (
-                      <div className={`p-2.5 rounded-lg text-xs leading-relaxed flex items-start gap-2 ${
-                        testConnResult.success 
-                          ? 'bg-emerald-950/70 border border-emerald-500/40 text-emerald-300' 
-                          : 'bg-rose-950/70 border border-rose-500/40 text-rose-200'
-                      }`}>
-                        {testConnResult.success ? (
-                          <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                        ) : (
-                          <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                        )}
-                        <span>{testConnResult.message}</span>
-                      </div>
-                    )}
-
-                    {cloudSyncMsg && (
-                      <div className={`p-2.5 rounded-lg text-xs leading-relaxed ${
-                        cloudSyncMsg.startsWith('✓') 
-                          ? 'bg-emerald-950/70 border border-emerald-500/40 text-emerald-300' 
-                          : 'bg-amber-950/60 border border-amber-500/40 text-amber-200'
-                      }`}>
-                        {cloudSyncMsg}
-                      </div>
-                    )}
-
-                    {/* Guia de primeira sincronização */}
-                    <div className="p-3 rounded-lg bg-emerald-950/20 border border-emerald-500/20 text-[11px] text-slate-300 space-y-1">
-                      <strong className="text-emerald-300 block">💡 Primeira Sincronização:</strong>
-                      <p>
-                        Se o seu progresso anterior no GitHub ainda não havia sido gravado no Firebase, basta usar o botão <strong>"Selecionar Arquivo JSON"</strong> acima para carregar o seu backup e depois clicar em <strong>"Subir pra Nuvem"</strong>.
-                      </p>
-                      <p className="text-slate-400 text-[10px]">
-                        Assim que o save for enviado para a nuvem uma vez, todos os seus dispositivos (PC e celular) sincronizarão automaticamente via Google!
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {!isLoggedIn && (
-                  <button
-                    onClick={() => {
-                      soundEffects.playSystemBeep();
-                      onTriggerGoogleLogin();
-                    }}
-                    className="w-full py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center justify-center gap-2 border border-slate-700 transition-colors cursor-pointer"
-                  >
-                    <Cloud className="w-4 h-4 text-emerald-400" />
-                    <span>Tentar Fazer Login com o Google Agora</span>
-                  </button>
-                )}
-
-                {authError && (
-                  <div className="p-2.5 rounded-lg bg-rose-950/50 border border-rose-500/40 text-xs text-rose-300 space-y-1">
-                    <div className="flex items-center gap-1.5 font-bold">
-                      <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                      <span>Aviso de Conexão:</span>
-                    </div>
-                    <p className="text-[11px] leading-relaxed text-rose-200/90 font-mono">
-                      {authError}
-                    </p>
-                    <p className="text-[10px] text-slate-400">
-                      Veja a aba <strong>Configurar Google / Firebase</strong> acima para resolver em 1 minuto.
-                    </p>
-                  </div>
-                )}
-              </div>
-
+              )}
             </div>
           )}
 
-          {activeTab === 'firebase' && (
+          {/* ========================================================
+              ABA 3: CONFIGURAÇÃO MANUAL
+              ======================================================== */}
+          {activeTab === 'config' && (
             <div className="space-y-4">
-              
-              {/* Passo a Passo para o GitHub Pages com Links Diretos */}
-              <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-2.5 text-xs">
-                <span className="font-bold text-emerald-300 flex items-center gap-1.5">
-                  <ExternalLink className="w-4 h-4" />
-                  Links Rápidos no Firebase Console:
-                </span>
-                <p className="text-slate-300 leading-relaxed text-[11px]">
-                  Clique nos atalhos abaixo para abrir diretamente as páginas necessárias no seu Firebase Console:
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-1">
+                <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+                  Configurações do Projeto Google / Firebase
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Parâmetros de autenticação usados pelo aplicativo. Configurados automaticamente pelo ambiente do Google Workspace.
                 </p>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                  <a
-                    href="https://console.firebase.google.com/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="p-2.5 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 font-bold flex items-center justify-between transition-colors"
-                  >
-                    <span>1. Firebase Console Geral</span>
-                    <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                  </a>
-
-                  <a
-                    href="https://console.firebase.google.com/u/0/project/_/authentication/providers"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="p-2.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold flex items-center justify-between transition-colors"
-                  >
-                    <span>2. Ativar Provedor Google</span>
-                    <ExternalLink className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
-                  </a>
-
-                  <a
-                    href="https://console.firebase.google.com/u/0/project/_/authentication/settings"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="p-2.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold flex items-center justify-between transition-colors"
-                  >
-                    <span>3. Authorized Domains</span>
-                    <ExternalLink className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
-                  </a>
-
-                  <a
-                    href="https://console.firebase.google.com/u/0/project/_/settings/general"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="p-2.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold flex items-center justify-between transition-colors"
-                  >
-                    <span>4. Ver Config (apiKey / appId)</span>
-                    <ExternalLink className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
-                  </a>
-
-                  <a
-                    href="https://console.firebase.google.com/u/0/project/_/firestore"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="p-2.5 rounded-lg bg-amber-950/40 hover:bg-amber-900/50 border border-amber-500/40 text-amber-300 font-bold flex items-center justify-between transition-colors col-span-1 sm:col-span-2"
-                  >
-                    <span>5. Firestore Database (Criar Banco e Regras)</span>
-                    <ExternalLink className="w-3.5 h-3.5 shrink-0 text-amber-400" />
-                  </a>
-                </div>
-
-                <div className="pt-2 border-t border-slate-800/80 space-y-1.5 text-slate-400 text-[11px]">
-                  <p>
-                    <strong className="text-slate-200">Domínio a autorizar no passo 3 (Authorized domains):</strong>
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <code className="px-2 py-1 rounded bg-black border border-slate-700 text-emerald-400 font-mono text-[11px]">
-                      {window.location.hostname}
-                    </code>
-                    <button
-                      onClick={copyDomain}
-                      className="p-1 px-2.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold flex items-center gap-1 border border-slate-700 cursor-pointer"
-                      title="Copiar domínio"
-                    >
-                      {copyFeedback ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copyFeedback ? 'Copiado!' : 'Copiar Domínio'}</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-slate-800/80 space-y-2 text-slate-400 text-[11px]">
-                  <div className="flex items-center justify-between">
-                    <strong className="text-amber-300">Regras do Firestore (Firebase Console &gt; Firestore &gt; Regras):</strong>
-                    <button
-                      onClick={copyRules}
-                      className="p-1 px-2.5 rounded bg-amber-950/60 hover:bg-amber-900/80 border border-amber-500/50 text-amber-200 text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
-                    >
-                      {copyRulesFeedback ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-amber-400" />}
-                      <span>{copyRulesFeedback ? 'Copiado!' : 'Copiar Regras'}</span>
-                    </button>
-                  </div>
-                  <pre className="p-2.5 rounded bg-black/80 border border-slate-800 font-mono text-[10px] text-emerald-300/90 overflow-x-auto leading-relaxed whitespace-pre">
-{`rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-      match /{allPaths=**} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
-      }
-    }
-  }
-}`}
-                  </pre>
-                  <p className="text-[10px] text-slate-400">
-                    ⚠️ Se as regras estiverem bloqueando (<code className="text-rose-400">allow read, write: if false;</code>), o Firestore não responderá e gerará timeout. Cole e publique as regras acima.
-                  </p>
-                </div>
               </div>
 
-              {/* Colar Configuração do Firebase */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-200">
-                    Colar Objeto <code className="text-emerald-400">firebaseConfig</code> do Firebase:
-                  </label>
-                  {isFirebaseConfigured && (
-                    <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1">
-                      <Check className="w-3 h-3" /> Chaves ativas
-                    </span>
-                  )}
+              <div className="space-y-3 text-xs font-mono">
+                <div>
+                  <label className="text-slate-400 text-[11px] block mb-1">Project ID</label>
+                  <input
+                    type="text"
+                    value={projectId}
+                    onChange={(e) => setProjectId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:border-emerald-400 focus:outline-none"
+                    placeholder="gen-lang-client-..."
+                  />
                 </div>
 
-                <textarea
-                  value={jsonPaste}
-                  onChange={(e) => setJsonPaste(e.target.value)}
-                  placeholder={`Cole aqui o código gerado no Firebase Console, por exemplo:\nconst firebaseConfig = {\n  apiKey: "AIzaSy...",\n  authDomain: "seu-app.firebaseapp.com",\n  projectId: "seu-app",\n  appId: "1:..."\n};`}
-                  className="w-full h-24 p-2.5 rounded-lg bg-black/60 border border-slate-700 font-mono text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500"
-                />
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                  <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">API Key</label>
-                    <input
-                      type="text"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      placeholder="AIzaSy..."
-                      className="w-full p-2 rounded bg-black/60 border border-slate-800 font-mono text-xs text-slate-200 focus:border-emerald-500 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">Project ID</label>
-                    <input
-                      type="text"
-                      value={projectId}
-                      onChange={(e) => setProjectId(e.target.value)}
-                      placeholder="meu-projeto"
-                      className="w-full p-2 rounded bg-black/60 border border-slate-800 font-mono text-xs text-slate-200 focus:border-emerald-500 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">App ID</label>
-                    <input
-                      type="text"
-                      value={appId}
-                      onChange={(e) => setAppId(e.target.value)}
-                      placeholder="1:123456789:web:..."
-                      className="w-full p-2 rounded bg-black/60 border border-slate-800 font-mono text-xs text-slate-200 focus:border-emerald-500 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">Auth Domain (Opcional)</label>
-                    <input
-                      type="text"
-                      value={authDomain}
-                      onChange={(e) => setAuthDomain(e.target.value)}
-                      placeholder="projeto.firebaseapp.com"
-                      className="w-full p-2 rounded bg-black/60 border border-slate-800 font-mono text-xs text-slate-200 focus:border-emerald-500 focus:outline-none"
-                    />
-                  </div>
+                <div>
+                  <label className="text-slate-400 text-[11px] block mb-1">API Key</label>
+                  <input
+                    type="password"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:border-emerald-400 focus:outline-none"
+                    placeholder="AIzaSy..."
+                  />
                 </div>
 
-                <div className="flex items-center gap-2 pt-2">
+                <div className="flex gap-2 pt-2">
                   <button
-                    onClick={handleSaveFirebaseConfig}
-                    className="flex-1 py-2.5 px-4 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.3)]"
+                    onClick={handleSaveConfig}
+                    className="px-4 py-2 text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 rounded-lg transition-all cursor-pointer flex items-center gap-1.5"
                   >
-                    <Check className="w-4 h-4" />
-                    <span>Salvar e Conectar</span>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Salvar Parâmetros</span>
                   </button>
 
-                  {getStoredFirebaseConfig() && (
-                    <button
-                      onClick={handleClearConfig}
-                      className="p-2.5 rounded-lg bg-rose-950/40 hover:bg-rose-950/70 border border-rose-500/40 text-rose-300 text-xs transition-colors cursor-pointer"
-                      title="Apagar chaves locais"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
+                  <button
+                    onClick={() => {
+                      clearStoredFirebaseConfig();
+                      window.location.reload();
+                    }}
+                    className="px-3 py-2 text-xs font-bold text-slate-400 hover:text-rose-300 bg-slate-900 hover:bg-rose-950/30 border border-slate-800 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Restaurar Padrão
+                  </button>
                 </div>
 
-                {saveSuccessFeedback && (
-                  <p className="text-xs text-emerald-400 text-center font-bold animate-pulse">
-                    Configurações salvas! Reiniciando conexão...
+                {configSuccessFeedback && (
+                  <p className="text-xs text-emerald-400 font-bold">
+                    ✓ Configuração atualizada! Recarregando...
                   </p>
                 )}
-
               </div>
-
             </div>
           )}
 
         </div>
 
-        {/* Footer do Modal */}
-        <div className="px-5 py-3 border-t border-emerald-500/20 bg-slate-950/90 flex items-center justify-between text-xs text-slate-400">
-          <span>Persistência Gratuita · Zero Estouro de Cota</span>
+        {/* Footer */}
+        <div className="p-4 border-t border-emerald-500/20 bg-emerald-950/20 flex items-center justify-between">
+          <span className="text-[11px] text-slate-400 font-mono flex items-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Local-First: seus dados sempre funcionam offline</span>
+          </span>
           <button
-            onClick={onClose}
-            className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold cursor-pointer"
+            onClick={() => {
+              soundEffects.playSystemBeep();
+              onClose();
+            }}
+            className="px-4 py-1.5 text-xs font-bold text-slate-300 hover:text-slate-100 bg-slate-800/80 hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
           >
-            Concluir
+            Fechar
           </button>
         </div>
 
       </div>
+
+      {/* ========================================================
+          MODAL DE CONFIRMAÇÃO DE RESTAURAÇÃO (Google Workspace Guideline)
+          ======================================================== */}
+      {isConfirmingRestore && pendingRestoreData && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-lg bg-[#040f07] border border-cyan-400/60 rounded-2xl p-5 sm:p-6 shadow-[0_0_50px_rgba(6,182,212,0.3)] space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-cyan-500/20 border border-cyan-400 text-cyan-300">
+                <Download className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-100 uppercase">
+                  Confirmar Restauração do Google Drive?
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Os dados locais deste dispositivo serão substituídos pelo backup da nuvem.
+                </p>
+              </div>
+            </div>
+
+            {/* Comparativo de Dados */}
+            <div className="grid grid-cols-2 gap-3 text-xs font-mono bg-slate-950/80 p-3.5 rounded-xl border border-slate-800">
+              <div className="space-y-1.5 pr-2 border-r border-slate-800">
+                <span className="text-[10px] text-slate-500 uppercase font-bold block">Dispositivo Atual</span>
+                <p className="text-slate-200 font-bold">{player.name}</p>
+                <p className="text-emerald-400">Nível {player.level} ({player.hunterRank})</p>
+                <p className="text-slate-400">{quests.length} Missões</p>
+                <p className="text-[10px] text-slate-500">{formatDriveTimestamp(player.updatedAt)}</p>
+              </div>
+
+              <div className="space-y-1.5 pl-2">
+                <span className="text-[10px] text-cyan-400 uppercase font-bold block">Backup no Google Drive</span>
+                <p className="text-slate-200 font-bold">{pendingRestoreData.data.player.name}</p>
+                <p className="text-cyan-300">Nível {pendingRestoreData.data.player.level} ({pendingRestoreData.data.player.hunterRank})</p>
+                <p className="text-slate-400">{pendingRestoreData.data.quests.length} Missões</p>
+                <p className="text-[10px] text-cyan-400">{formatDriveTimestamp(pendingRestoreData.data.savedAt || pendingRestoreData.fileInfo.modifiedTime)}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => {
+                  soundEffects.playSystemBeep();
+                  setIsConfirmingRestore(false);
+                  setPendingRestoreData(null);
+                }}
+                className="px-4 py-2 text-xs font-bold text-slate-400 hover:text-slate-200 bg-slate-900 rounded-lg border border-slate-800 transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmRestore}
+                className="px-4 py-2 text-xs font-black uppercase tracking-wider text-slate-950 bg-cyan-400 hover:bg-cyan-300 rounded-lg shadow-[0_0_20px_rgba(6,182,212,0.4)] transition-all cursor-pointer flex items-center gap-2"
+              >
+                <Check className="w-4 h-4" />
+                <span>Confirmar & Restaurar</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          MODAL DE CONFIRMAÇÃO DE SOBREGRAVAÇÃO NO DRIVE (Google Workspace Guideline)
+          ======================================================== */}
+      {isConfirmingDriveOverwrite && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-[#040f07] border border-emerald-400/60 rounded-2xl p-5 sm:p-6 shadow-[0_0_50px_rgba(34,197,94,0.3)] space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-400 text-emerald-300">
+                <Upload className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-100 uppercase">
+                  Atualizar Backup no Drive?
+                </h3>
+                <p className="text-xs text-slate-400">
+                  O arquivo existente <span className="text-emerald-400 font-mono">hunter_save.json</span> será substituído pelo progresso atual deste dispositivo.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-xs font-mono space-y-1">
+              <p className="text-slate-300">Caçador: <span className="text-emerald-400 font-bold">{player.name} (Nível {player.level})</span></p>
+              <p className="text-slate-300">Missões: <span className="text-emerald-400 font-bold">{quests.length}</span></p>
+              <p className="text-slate-400 text-[10px]">Destino: Google Drive &gt; {DRIVE_FOLDER_NAME} &gt; {DRIVE_FILE_NAME}</p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setIsConfirmingDriveOverwrite(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-400 hover:text-slate-200 bg-slate-900 rounded-lg border border-slate-800 transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleExecuteSaveToDrive}
+                className="px-4 py-2 text-xs font-black uppercase tracking-wider text-slate-950 bg-emerald-400 hover:bg-emerald-300 rounded-lg shadow-[0_0_20px_rgba(34,197,94,0.4)] transition-all cursor-pointer flex items-center gap-2"
+              >
+                <Check className="w-4 h-4" />
+                <span>Substituir no Drive</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

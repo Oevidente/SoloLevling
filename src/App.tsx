@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User } from 'firebase/auth';
 import { TopBar } from './components/TopBar';
 import { StatusHud } from './components/StatusHud';
@@ -9,7 +9,6 @@ import { LootBoxModal } from './components/LootBoxModal';
 import { NewQuestModal } from './components/NewQuestModal';
 import { CycleReportModal } from './components/CycleReportModal';
 import { CloudBackupModal } from './components/CloudBackupModal';
-import { SyncConflictModal } from './components/SyncConflictModal';
 import { ExpRewardPopup } from './components/ExpRewardPopup';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { OfflineIndicator } from './components/OfflineIndicator';
@@ -20,9 +19,8 @@ import {
   subscribeToAuth, 
   loginWithGoogle, 
   logoutUser, 
-  fetchCloudSave, 
-  saveCloudSave, 
-  GameSaveData 
+  getCachedAccessToken,
+  setCachedAccessToken
 } from './services/firebase';
 
 const DEFAULT_PLAYER: PlayerProfile = {
@@ -51,10 +49,9 @@ const DEFAULT_PLAYER: PlayerProfile = {
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const currentUserRef = useRef<User | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(() => getCachedAccessToken());
 
   const [currentTab, setCurrentTab] = useState<'status' | 'inventory'>('status');
-  const [syncStatus, setSyncStatus] = useState<'synced' | 'saving' | 'offline' | 'local'>('local');
 
   // Estado do Caçador com Local-First Caching
   const [player, setPlayer] = useState<PlayerProfile>(() => {
@@ -92,11 +89,6 @@ export default function App() {
   const [previousLevel, setPreviousLevel] = useState(1);
   const [isCycleReportOpen, setIsCycleReportOpen] = useState(false);
   const [isCloudBackupOpen, setIsCloudBackupOpen] = useState(false);
-  const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
-
-  // Sincronização entre dispositivos e resolução de conflitos
-  const [pendingCloudData, setPendingCloudData] = useState<GameSaveData | null>(null);
-  const [isSyncConflictOpen, setIsSyncConflictOpen] = useState(false);
 
   // Recompensa de EXP pop-up & Glow de missão
   const [activeExpReward, setActiveExpReward] = useState<ExpRewardEvent | null>(null);
@@ -104,11 +96,6 @@ export default function App() {
 
   // Áudio
   const [isMuted, setIsMuted] = useState(() => soundEffects.getMuted());
-
-  // Debounced cloud sync ref
-  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const isSyncConflictOpenRef = useRef(isSyncConflictOpen);
-  isSyncConflictOpenRef.current = isSyncConflictOpen;
 
   // Sincronização LocalStorage constante
   useEffect(() => {
@@ -123,185 +110,42 @@ export default function App() {
     } catch {}
   }, [quests]);
 
-  // Executa o sync inicial ao autenticar (protegido contra loops)
-  const performInitialSync = useCallback(async (user: User) => {
-    try {
-      if (!navigator.onLine) {
-        setSyncStatus('offline');
-        return;
-      }
-
-      setSyncStatus('saving');
-      const cloudSave = await fetchCloudSave(user.uid, user.email);
-
-      if (cloudSave && cloudSave.player) {
-        const currentLocal = playerRef.current;
-        const currentQuests = questsRef.current;
-
-        const isLocalDefault = currentLocal.level === 1 && currentLocal.currentXp === 0 && currentLocal.name === 'Sung Jin-Woo';
-        const isDifferent = 
-          cloudSave.player.level !== currentLocal.level ||
-          cloudSave.player.currentXp !== currentLocal.currentXp ||
-          cloudSave.player.name !== currentLocal.name ||
-          (cloudSave.quests && cloudSave.quests.length !== currentQuests.length);
-
-        if (isLocalDefault && !isDifferent) {
-          // Ambos padrão
-          setSyncStatus('synced');
-        } else if (isDifferent) {
-          // Conflito ou novo dispositivo: exibe modal para o usuário decidir
-          setPendingCloudData(cloudSave);
-          setIsSyncConflictOpen(true);
-          setSyncStatus('synced');
-        } else {
-          setSyncStatus('synced');
-        }
-      } else {
-        // Nuvem sem save: sobe dados locais atuais para criar o primeiro backup
-        await saveCloudSave(user.uid, {
-          player: playerRef.current,
-          quests: questsRef.current,
-        });
-        setSyncStatus('synced');
-      }
-    } catch (err) {
-      console.warn('Sync inicial não pôde ser completado, mantendo dados locais:', err);
-      setSyncStatus('offline');
-    }
-  }, []);
-
-  // Listener de Autenticação Firebase (Executado apenas 1 vez na montagem)
+  // Listener de Autenticação Google
   useEffect(() => {
-    const unsubscribe = subscribeToAuth((user) => {
+    const unsubscribe = subscribeToAuth((user, token) => {
       setCurrentUser(user);
-      currentUserRef.current = user;
-
-      if (user) {
-        performInitialSync(user);
-      } else {
-        setSyncStatus('local');
+      if (token) {
+        setAccessToken(token);
       }
     });
-
-    const handleOnline = () => {
-      if (currentUserRef.current) {
-        performInitialSync(currentUserRef.current);
-      }
-    };
-
-    const handleOffline = () => {
-      setSyncStatus('offline');
-    };
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
 
     return () => {
       unsubscribe();
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
     };
-  }, [performInitialSync]);
+  }, []);
 
-  // Salva no Firestore de forma consolidada e espaçada (debounce) para nunca estourar cotas
-  const triggerDebouncedSync = (updatedPlayer: PlayerProfile, updatedQuests?: Quest[]) => {
-    const activeUser = currentUserRef.current;
-    if (!activeUser || isSyncConflictOpenRef.current) return;
-    if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-
-    if (!navigator.onLine) {
-      setSyncStatus('offline');
-      return;
-    }
-
-    setSyncStatus('saving');
-    syncTimeoutRef.current = setTimeout(async () => {
-      try {
-        await saveCloudSave(activeUser.uid, {
-          player: updatedPlayer,
-          quests: updatedQuests || questsRef.current,
-        });
-        setSyncStatus('synced');
-      } catch (err) {
-        console.warn('Debounced sync mantido em cache local:', err);
-        setSyncStatus('offline');
-      }
-    }, 2500);
-  };
-
-  // Escolha 1: Baixar dados da Nuvem
-  const handleChooseCloudSave = () => {
-    if (!pendingCloudData) return;
-    const downloadedPlayer = {
-      ...pendingCloudData.player,
-      userId: currentUser?.uid || pendingCloudData.player.userId,
-    };
-    const downloadedQuests = pendingCloudData.quests || [];
-
-    setPlayer(downloadedPlayer);
-    setQuests(downloadedQuests);
-
+  // Login com Google
+  const handleLogin = async () => {
     try {
-      localStorage.setItem('solo_hunter_profile', JSON.stringify(downloadedPlayer));
-      localStorage.setItem('solo_hunter_quests', JSON.stringify(downloadedQuests));
-    } catch {}
-
-    setIsSyncConflictOpen(false);
-    setPendingCloudData(null);
-    setSyncStatus('synced');
-    soundEffects.playQuestComplete();
-  };
-
-  // Escolha 2: Manter dados deste Dispositivo (Sobe para a Nuvem)
-  const handleChooseLocalSave = async () => {
-    const activeUser = currentUserRef.current;
-    if (!activeUser) return;
-    try {
-      setSyncStatus('saving');
-      await saveCloudSave(activeUser.uid, { player, quests });
-      setSyncStatus('synced');
-      setIsSyncConflictOpen(false);
-      setPendingCloudData(null);
-      soundEffects.playLevelUp();
-    } catch (err) {
-      console.warn('Erro ao enviar dados locais para a nuvem:', err);
-      setSyncStatus('offline');
-      setIsSyncConflictOpen(false);
+      soundEffects.playSystemBeep();
+      const result = await loginWithGoogle();
+      setCurrentUser(result.user);
+      setAccessToken(result.accessToken);
+      setCachedAccessToken(result.accessToken);
+      soundEffects.playQuestComplete();
+      setIsCloudBackupOpen(true);
+    } catch (err: any) {
+      console.warn('Login com Google cancelado ou com erro:', err);
     }
   };
 
-  // Forçar Baixar da Nuvem manualmente pelo modal de Backup
-  const handleForcePullFromCloud = async () => {
-    const activeUser = currentUserRef.current;
-    if (!activeUser) return;
-    setSyncStatus('saving');
-    const cloudSave = await fetchCloudSave(activeUser.uid, activeUser.email);
-    if (!cloudSave || !cloudSave.player) {
-      throw new Error('Nenhum save encontrado na nuvem para esta conta Google ainda. Como o salvamento anterior no GitHub estava apenas local, restaure seu arquivo JSON de backup na tela e clique em "Subir pra Nuvem" para sincronizar com todos os aparelhos!');
-    }
-    const downloadedPlayer = { ...cloudSave.player, userId: activeUser.uid };
-    const downloadedQuests = cloudSave.quests || [];
-    setPlayer(downloadedPlayer);
-    setQuests(downloadedQuests);
-    try {
-      localStorage.setItem('solo_hunter_profile', JSON.stringify(downloadedPlayer));
-      localStorage.setItem('solo_hunter_quests', JSON.stringify(downloadedQuests));
-    } catch {}
-    setSyncStatus('synced');
-    soundEffects.playQuestComplete();
-  };
-
-  // Forçar Enviar para Nuvem manualmente pelo modal de Backup
-  const handleForceSyncToCloud = async () => {
-    const activeUser = currentUserRef.current;
-    if (!activeUser) return;
-    setSyncStatus('saving');
-    await saveCloudSave(activeUser.uid, {
-      player: playerRef.current,
-      quests: questsRef.current,
-    });
-    setSyncStatus('synced');
-    soundEffects.playQuestComplete();
+  // Logout
+  const handleLogout = async () => {
+    soundEffects.playSystemBeep();
+    await logoutUser();
+    setCurrentUser(null);
+    setAccessToken(null);
+    setCachedAccessToken(null);
   };
 
   // Cálculo dinâmico de Rank
@@ -395,13 +239,97 @@ export default function App() {
     }
 
     setPlayer(updatedPlayer);
-    triggerDebouncedSync(updatedPlayer, updatedQuests);
+  };
+
+  // Reivindicar Item do Loot Box
+  const handleClaimLoot = (item: InventoryItem) => {
+    setPlayer((prev) => ({
+      ...prev,
+      lootBoxesAvailable: Math.max(0, prev.lootBoxesAvailable - 1),
+      inventory: [item, ...prev.inventory],
+      updatedAt: new Date().toISOString(),
+    }));
+  };
+
+  // Usar item do Inventário
+  const handleUseItem = (itemId: string) => {
+    const item = player.inventory.find((i) => i.id === itemId);
+    if (!item) return;
+
+    soundEffects.playStatUpgrade();
+
+    let xpGain = 0;
+    if (item.name.includes('+50 XP')) xpGain = 50;
+    else if (item.name.includes('+75 XP')) xpGain = 75;
+    else if (item.name.includes('+100 XP')) xpGain = 100;
+    else if (item.name.includes('+150 XP')) xpGain = 150;
+
+    setPlayer((prev) => {
+      let newXp = prev.currentXp + xpGain;
+      let newLevel = prev.level;
+      let newNextXp = prev.nextLevelXp;
+      let newUnassigned = prev.unassignedPoints;
+
+      while (newXp >= newNextXp) {
+        newXp -= newNextXp;
+        newLevel += 1;
+        newNextXp = Math.round(newNextXp * 1.35);
+        newUnassigned += 3;
+      }
+
+      const updatedInventory = prev.inventory.filter((inv) => inv.id !== itemId);
+
+      return {
+        ...prev,
+        level: newLevel,
+        currentXp: newXp,
+        nextLevelXp: newNextXp,
+        unassignedPoints: newUnassigned,
+        hunterRank: calculateRank(newLevel),
+        inventory: updatedInventory,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+  };
+
+  // Equipar / Mudar Título do Caçador
+  const handleSetTitle = (title: string) => {
+    soundEffects.playSystemBeep();
+    setPlayer((prev) => ({
+      ...prev,
+      hunterTitle: title,
+      updatedAt: new Date().toISOString(),
+    }));
+  };
+
+  // Mudar Nome do Caçador
+  const handleChangeName = (newName: string) => {
+    soundEffects.playSystemBeep();
+    setPlayer((prev) => ({
+      ...prev,
+      name: newName,
+      updatedAt: new Date().toISOString(),
+    }));
+  };
+
+  // Concluir Dungeon de Redenção
+  const handleCompleteRedemption = () => {
+    soundEffects.playLevelUp();
+    setPlayer((prev) => ({
+      ...prev,
+      redemptionUsedToday: true,
+      streakDays: prev.streakDays + 1,
+      hp: { ...prev.hp, current: prev.hp.max },
+      mp: { ...prev.mp, current: prev.mp.max },
+      updatedAt: new Date().toISOString(),
+    }));
+    setIsRedemptionOpen(false);
   };
 
   // Renovar Ciclo Diário
   const handleRenewDay = () => {
-    const completedCount = quests.filter((q) => q.isCompleted).length;
-    const isSuccessDay = completedCount >= 3;
+    soundEffects.playSystemBeep();
+    const todayStr = new Date().toISOString().split('T')[0];
 
     const resetQuests = quests.map((q) => ({
       ...q,
@@ -410,199 +338,23 @@ export default function App() {
     }));
 
     setQuests(resetQuests);
-
-    const updatedPlayer: PlayerProfile = {
-      ...player,
-      streakDays: isSuccessDay ? player.streakDays + 1 : player.streakDays,
+    setPlayer((prev) => ({
+      ...prev,
+      lastActiveDate: todayStr,
       redemptionUsedToday: false,
-      hp: { current: player.hp.max, max: player.hp.max },
-      mp: { current: player.mp.max, max: player.mp.max },
-      lastActiveDate: new Date().toISOString().split('T')[0],
+      hp: { ...prev.hp, current: prev.hp.max },
+      mp: { ...prev.mp, current: prev.mp.max },
       updatedAt: new Date().toISOString(),
-    };
-
-    setPlayer(updatedPlayer);
-    triggerDebouncedSync(updatedPlayer, resetQuests);
+    }));
   };
 
-  // Completar Masmorra de Redenção
-  const handleCompleteRedemption = () => {
-    const updatedPlayer: PlayerProfile = {
-      ...player,
-      redemptionUsedToday: true,
-      lootBoxesAvailable: player.lootBoxesAvailable + 1,
-      hp: { current: player.hp.max, max: player.hp.max },
-      mp: { current: player.mp.max, max: player.mp.max },
-      currentXp: player.currentXp + 25,
-      updatedAt: new Date().toISOString(),
-    };
-
-    setPlayer(updatedPlayer);
-    triggerDebouncedSync(updatedPlayer);
-  };
-
-  // Resgatar Item do Baú
-  const handleClaimLoot = (item: InventoryItem) => {
-    let bonusXp = 0;
-    if (item.name.includes('+50 XP')) bonusXp = 50;
-    if (item.name.includes('+75 XP')) bonusXp = 75;
-    if (item.name.includes('+100 XP')) bonusXp = 100;
-    if (item.name.includes('+150 XP')) bonusXp = 150;
-
-    let newXp = player.currentXp + bonusXp;
-    let newLevel = player.level;
-    let newNextXp = player.nextLevelXp;
-    let newUnassigned = player.unassignedPoints;
-
-    while (newXp >= newNextXp) {
-      newXp -= newNextXp;
-      newLevel += 1;
-      newNextXp = Math.round(newNextXp * 1.35);
-      newUnassigned += 3;
-    }
-
-    const updatedPlayer: PlayerProfile = {
-      ...player,
-      level: newLevel,
-      currentXp: newXp,
-      nextLevelXp: newNextXp,
-      unassignedPoints: newUnassigned,
-      hunterRank: calculateRank(newLevel),
-      lootBoxesAvailable: Math.max(0, player.lootBoxesAvailable - 1),
-      inventory: [item, ...player.inventory],
-      updatedAt: new Date().toISOString(),
-    };
-
-    setPlayer(updatedPlayer);
-    triggerDebouncedSync(updatedPlayer);
-  };
-
-  // Utilizar item do inventário
-  const handleUseItem = (itemId: string) => {
-    const targetItem = player.inventory.find((i) => i.id === itemId);
-    if (!targetItem || targetItem.isUsed) return;
-
-    let bonusXp = 0;
-    if (targetItem.name.includes('+50 XP')) bonusXp = 50;
-    else if (targetItem.name.includes('+75 XP')) bonusXp = 75;
-    else if (targetItem.name.includes('+100 XP')) bonusXp = 100;
-    else if (targetItem.name.includes('+150 XP')) bonusXp = 150;
-
-    let newXp = player.currentXp + bonusXp;
-    let newLevel = player.level;
-    let newNextXp = player.nextLevelXp;
-    let newUnassigned = player.unassignedPoints;
-    let leveledUp = false;
-
-    while (newXp >= newNextXp) {
-      leveledUp = true;
-      newXp -= newNextXp;
-      newLevel += 1;
-      newNextXp = Math.round(newNextXp * 1.35);
-      newUnassigned += 3;
-    }
-
-    const updatedInventory = player.inventory.map((item) => {
-      if (item.id === itemId) {
-        return { ...item, isUsed: true };
-      }
-      return item;
-    });
-
-    if (bonusXp > 0) {
-      setActiveExpReward({
-        id: `item_${itemId}_${Date.now()}`,
-        questTitle: `Item: ${targetItem.name}`,
-        category: 'mental',
-        xpEarned: bonusXp,
-        statRewardName: 'Recompensa do Baú',
-        currentXp: newXp,
-        nextLevelXp: newNextXp,
-        timestamp: Date.now(),
-      });
-    }
-
-    const updatedPlayer: PlayerProfile = {
-      ...player,
-      level: newLevel,
-      currentXp: newXp,
-      nextLevelXp: newNextXp,
-      unassignedPoints: newUnassigned,
-      hunterRank: calculateRank(newLevel),
-      hp: { current: player.hp.max, max: player.hp.max },
-      mp: { current: player.mp.max, max: player.mp.max },
-      inventory: updatedInventory,
-      updatedAt: new Date().toISOString(),
-    };
-
-    if (leveledUp) {
-      setPreviousLevel(player.level);
-      soundEffects.playLevelUp();
-      setIsLevelUpOpen(true);
-      updatedPlayer.lootBoxesAvailable += 1;
-    } else {
-      soundEffects.playQuestComplete();
-    }
-
-    setPlayer(updatedPlayer);
-    triggerDebouncedSync(updatedPlayer);
-  };
-
-  // Alterar Título do Caçador
-  const handleSetTitle = (newTitle: string) => {
-    const updatedPlayer: PlayerProfile = {
-      ...player,
-      hunterTitle: newTitle,
-      updatedAt: new Date().toISOString(),
-    };
-    setPlayer(updatedPlayer);
-    triggerDebouncedSync(updatedPlayer);
-  };
-
-  // Alterar Nome do Caçador
-  const handleChangeName = (newName: string) => {
-    const updatedPlayer: PlayerProfile = {
-      ...player,
-      name: newName,
-      updatedAt: new Date().toISOString(),
-    };
-    setPlayer(updatedPlayer);
-    triggerDebouncedSync(updatedPlayer);
-  };
-
-  // Login com Google
-  const handleLogin = async () => {
-    try {
-      setAuthErrorMessage(null);
-      soundEffects.playSystemBeep();
-      await loginWithGoogle();
-    } catch (err: any) {
-      const msg = err?.message || 'Falha ao autenticar com o Google.';
-      setAuthErrorMessage(msg);
-      setIsCloudBackupOpen(true);
-    }
-  };
-
-  // Logout
-  const handleLogout = async () => {
-    try {
-      soundEffects.playSystemBeep();
-      await logoutUser();
-      setCurrentUser(null);
-      currentUserRef.current = null;
-      setSyncStatus('local');
-    } catch (err) {
-      console.error('Falha ao desconectar:', err);
-    }
-  };
-
-  // Áudio Mute
+  // Alternar Mudo
   const handleToggleMute = () => {
     const newState = soundEffects.toggleMute();
     setIsMuted(newState);
   };
 
-  // Abrir Modal de Nova Missão para um pilar específico
+  // Abrir Modal de Nova Missão
   const handleOpenNewQuestModal = (category: PillarType = 'fisico') => {
     setEditingQuest(null);
     setNewQuestCategory(category);
@@ -620,36 +372,42 @@ export default function App() {
   const handleUpdateQuest = (updatedQuest: Quest) => {
     const updatedQuests = quests.map((q) => (q.id === updatedQuest.id ? updatedQuest : q));
     setQuests(updatedQuests);
-    triggerDebouncedSync(player, updatedQuests);
   };
 
   // Adicionar Nova Missão
   const handleAddQuest = (newQuestData: Omit<Quest, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => {
-    const activeUser = currentUserRef.current;
     const newQuest: Quest = {
       ...newQuestData,
       id: `quest_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      userId: activeUser?.uid || 'local_hunter',
+      userId: currentUser?.uid || 'local_hunter',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
     const updatedQuests = [newQuest, ...quests];
     setQuests(updatedQuests);
-    triggerDebouncedSync(player, updatedQuests);
   };
 
   // Deletar Missão
   const handleDeleteQuest = (questId: string) => {
     const updatedQuests = quests.filter((q) => q.id !== questId);
     setQuests(updatedQuests);
-    triggerDebouncedSync(player, updatedQuests);
+  };
+
+  // Importar Dados (Restaurar do Drive ou JSON)
+  const handleImportData = (importedPlayer: PlayerProfile, importedQuests: Quest[]) => {
+    setPlayer(importedPlayer);
+    setQuests(importedQuests);
+    try {
+      localStorage.setItem('solo_hunter_profile', JSON.stringify(importedPlayer));
+      localStorage.setItem('solo_hunter_quests', JSON.stringify(importedQuests));
+    } catch {}
   };
 
   return (
     <div className="min-h-screen solo-leveling-bg text-slate-100 flex flex-col font-sans scanline-effect">
       
-      {/* Top Bar com indicador de Sync sem travamentos */}
+      {/* Top Bar */}
       <TopBar
         currentTab={currentTab}
         setCurrentTab={setCurrentTab}
@@ -664,7 +422,6 @@ export default function App() {
         onOpenCloudBackup={() => setIsCloudBackupOpen(true)}
         isMuted={isMuted}
         onToggleMute={handleToggleMute}
-        syncStatus={syncStatus}
       />
 
       {/* Main Viewport */}
@@ -716,16 +473,6 @@ export default function App() {
       {/* Indicador de Status Offline do PWA */}
       <OfflineIndicator />
 
-      {/* Modal de Conflito de Sincronização entre Nuvem e Dispositivo */}
-      <SyncConflictModal
-        isOpen={isSyncConflictOpen}
-        cloudData={pendingCloudData}
-        localPlayer={player}
-        localQuests={quests}
-        onChooseCloud={handleChooseCloudSave}
-        onChooseLocal={handleChooseLocalSave}
-      />
-
       {/* Modais Globais */}
       <RedemptionDungeonModal
         isOpen={isRedemptionOpen}
@@ -742,7 +489,7 @@ export default function App() {
 
       <LootBoxModal
         isOpen={isLootBoxOpen}
-        onClose={() => setIsLevelUpOpen(false)}
+        onClose={() => setIsLootBoxOpen(false)}
         onClaimItem={handleClaimLoot}
         availableBoxes={player.lootBoxesAvailable}
         onOpenInventory={() => setCurrentTab('inventory')}
@@ -773,20 +520,17 @@ export default function App() {
         onClose={() => setIsCloudBackupOpen(false)}
         player={player}
         quests={quests}
-        onImportData={(importedPlayer, importedQuests) => {
-          setPlayer(importedPlayer);
-          setQuests(importedQuests);
-          triggerDebouncedSync(importedPlayer, importedQuests);
-        }}
+        onImportData={handleImportData}
         onTriggerGoogleLogin={handleLogin}
+        onTriggerGoogleLogout={handleLogout}
         isLoggedIn={Boolean(currentUser)}
         userEmail={currentUser?.email}
-        authError={authErrorMessage}
-        onForcePullFromCloud={handleForcePullFromCloud}
-        onForceSyncToCloud={handleForceSyncToCloud}
+        userName={currentUser?.displayName}
+        userPhoto={currentUser?.photoURL}
+        accessToken={accessToken}
       />
 
-      {/* Pop-up de Recompensa de EXP (Auto-fecha após 5s) */}
+      {/* Pop-up de Recompensa de EXP */}
       <ExpRewardPopup
         reward={activeExpReward}
         onClose={() => setActiveExpReward(null)}

@@ -1,6 +1,6 @@
 {
-  "summary":  "Plano de implementação para sincronização automática entre dispositivos via Firebase com Login do Google, resolução inteligente de conflitos e otimização de cotas do banco de dados.",
-  "updatedAt":  "2026-09-29T03:58:24.927291262Z",
-  "requestFeedback":  true,
-  "userFacing":  true
+  "summary": "Plano detalhado de migração completa do Firebase/Firestore para Google Drive (Workspace OAuth). O backup será salvo em arquivo único `hunter_save.json` dentro de uma pasta dedicada visível (`Solo Leveling - Hunter System`) no Google Drive do usuário, com botões manuais de 'Salvar no Drive' (sobrescrevendo o arquivo sem duplicar) e 'Restaurar do Drive' (com pré-visualização e confirmação), 100% gratuito e compatível com GitHub Pages e PWA.",
+  "updatedAt": "2026-09-30T01:59:54.985350235Z",
+  "requestFeedback": true,
+  "userFacing": true
 }

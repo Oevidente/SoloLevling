@@ -748,7 +748,7 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
                   Configurações do Projeto Google / Firebase
                 </h3>
                 <p className="text-xs text-slate-400">
-                  Parâmetros de autenticação usados pelo aplicativo. Configurados automaticamente pelo ambiente do Google Workspace.
+                  Preencha os dados do seu projeto do Firebase/Google Cloud para usar o seu próprio domínio e chaves.
                 </p>
               </div>
 
@@ -758,14 +758,20 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
                   <input
                     type="text"
                     value={projectId}
-                    onChange={(e) => setProjectId(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setProjectId(val);
+                      if (val.trim()) {
+                        setAuthDomain(`${val.trim()}.firebaseapp.com`);
+                      }
+                    }}
                     className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:border-emerald-400 focus:outline-none"
-                    placeholder="gen-lang-client-..."
+                    placeholder="ex: robotic-century-498520-e2"
                   />
                 </div>
 
                 <div>
-                  <label className="text-slate-400 text-[11px] block mb-1">API Key</label>
+                  <label className="text-slate-400 text-[11px] block mb-1">API Key (Web API Key)</label>
                   <input
                     type="password"
                     value={apiKey}
@@ -773,6 +779,42 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
                     className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:border-emerald-400 focus:outline-none"
                     placeholder="AIzaSy..."
                   />
+                </div>
+
+                <div>
+                  <label className="text-slate-400 text-[11px] block mb-1">Auth Domain</label>
+                  <input
+                    type="text"
+                    value={authDomain}
+                    onChange={(e) => setAuthDomain(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:border-emerald-400 focus:outline-none"
+                    placeholder="ex: robotic-century-498520-e2.firebaseapp.com"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-slate-400 text-[11px] block mb-1">App ID (Opcional)</label>
+                  <input
+                    type="text"
+                    value={appId}
+                    onChange={(e) => setAppId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:border-emerald-400 focus:outline-none"
+                    placeholder="1:272601092637:web:..."
+                  />
+                </div>
+
+                {/* Caixa de Ajuda para erro de redirect_uri_mismatch */}
+                <div className="p-3 rounded-lg bg-slate-950/80 border border-cyan-500/30 text-[11px] space-y-1 font-sans text-slate-300">
+                  <div className="font-bold text-cyan-400 flex items-center gap-1.5 font-mono">
+                    <Info className="w-3.5 h-3.5" />
+                    <span>Como resolver "redirect_uri_mismatch":</span>
+                  </div>
+                  <p className="text-slate-400 leading-relaxed">
+                    No seu <strong className="text-slate-200">Google Cloud Console ➔ APIs e Serviços ➔ Credenciais</strong>, abra seu ID de Cliente OAuth 2.0 Web e certifique-se de que o seguinte URI está em <strong className="text-slate-200">URIs de redirecionamento autorizados</strong>:
+                  </p>
+                  <code className="block p-1.5 rounded bg-slate-900 border border-slate-700 text-emerald-400 font-mono select-all text-[11px] break-all">
+                    https://{authDomain || `${projectId || 'seu-projeto'}.firebaseapp.com`}/__/auth/handler
+                  </code>
                 </div>
 
                 <div className="flex gap-2 pt-2">

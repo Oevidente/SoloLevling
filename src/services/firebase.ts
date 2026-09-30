@@ -10,6 +10,8 @@ import {
   User,
 } from 'firebase/auth';
 
+import appletConfig from '../../firebase-applet-config.json';
+
 export interface FirebaseCustomConfig {
   projectId?: string;
   appId?: string;
@@ -70,16 +72,19 @@ export function setStoredAccessToken(token: string | null): void {
   }
 }
 
-// Resolução de credenciais: LocalStorage -> Vite env vars
+// Resolução de credenciais: LocalStorage -> Vite env vars -> firebase-applet-config.json
 const userCustom = getStoredFirebaseConfig();
 
+const resolvedProjectId = userCustom?.projectId || import.meta.env.VITE_FIREBASE_PROJECT_ID || appletConfig.projectId || 'gen-lang-client-0769530201';
+const resolvedAuthDomain = userCustom?.authDomain || (userCustom?.projectId ? `${userCustom.projectId}.firebaseapp.com` : (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || appletConfig.authDomain || `${resolvedProjectId}.firebaseapp.com`));
+
 const activeConfig: FirebaseCustomConfig = {
-  projectId: userCustom?.projectId || import.meta.env.VITE_FIREBASE_PROJECT_ID || 'gen-lang-client-0769530201',
-  appId: userCustom?.appId || import.meta.env.VITE_FIREBASE_APP_ID || '',
-  apiKey: userCustom?.apiKey || import.meta.env.VITE_FIREBASE_API_KEY || '',
-  authDomain: userCustom?.authDomain || import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'gen-lang-client-0769530201.firebaseapp.com',
-  storageBucket: userCustom?.storageBucket || import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
-  messagingSenderId: userCustom?.messagingSenderId || import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+  projectId: resolvedProjectId,
+  appId: userCustom?.appId || import.meta.env.VITE_FIREBASE_APP_ID || appletConfig.appId || '',
+  apiKey: userCustom?.apiKey || import.meta.env.VITE_FIREBASE_API_KEY || appletConfig.apiKey || '',
+  authDomain: resolvedAuthDomain,
+  storageBucket: userCustom?.storageBucket || (userCustom?.projectId ? `${userCustom.projectId}.firebasestorage.app` : (import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || appletConfig.storageBucket || '')),
+  messagingSenderId: userCustom?.messagingSenderId || import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || appletConfig.messagingSenderId || '',
 };
 
 export const isFirebaseConfigured = Boolean(

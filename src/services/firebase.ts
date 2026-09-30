@@ -120,7 +120,6 @@ try {
   googleProviderInstance.addScope('https://www.googleapis.com/auth/drive.file');
   googleProviderInstance.setCustomParameters({
     prompt: 'select_account',
-    access_type: 'offline',
   });
 } catch (err) {
   console.warn('Inicialização Firebase/Auth:', err);

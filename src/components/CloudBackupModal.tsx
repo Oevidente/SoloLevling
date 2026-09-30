@@ -151,9 +151,12 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
       });
     } catch (err: any) {
       soundEffects.playAlertNotice();
+      const is401 = err?.message?.includes('401') || err?.status === 401;
       setDriveFeedback({
         status: 'error',
-        message: err.message || 'Falha ao salvar no Google Drive. Verifique sua conexão e tente novamente.',
+        message: is401
+          ? 'Sua autorização com o Google Drive expirou. Clique em "Renovar Acesso Google" para restabelecer a conexão.'
+          : (err.message || 'Falha ao salvar no Google Drive. Verifique sua conexão e tente novamente.'),
       });
     } finally {
       setIsSavingDrive(false);
@@ -180,9 +183,12 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
       setIsConfirmingRestore(true);
     } catch (err: any) {
       soundEffects.playAlertNotice();
+      const is401 = err?.message?.includes('401') || err?.status === 401;
       setDriveFeedback({
         status: 'error',
-        message: err.message || 'Falha ao ler o backup do Google Drive.',
+        message: is401
+          ? 'Sua autorização com o Google Drive expirou. Clique em "Renovar Acesso Google" para restabelecer a conexão.'
+          : (err.message || 'Falha ao ler o backup do Google Drive.'),
       });
     } finally {
       setIsLoadingDrive(false);
@@ -399,15 +405,25 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
                     </div>
                   </div>
 
-                  <div>
+                  <div className="flex items-center gap-2">
                     {isLoggedIn ? (
-                      <button
-                        onClick={onTriggerGoogleLogout}
-                        className="px-3 py-1.5 text-xs font-bold text-rose-300 hover:text-rose-100 bg-rose-950/30 hover:bg-rose-900/40 border border-rose-500/40 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <LogOut className="w-3.5 h-3.5" />
-                        <span>Desconectar</span>
-                      </button>
+                      <>
+                        <button
+                          onClick={onTriggerGoogleLogin}
+                          className="px-3 py-1.5 text-xs font-bold text-emerald-300 hover:text-emerald-100 bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-500/40 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+                          title="Renovar token de acesso do Google Drive se expirar"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Renovar Acesso</span>
+                        </button>
+                        <button
+                          onClick={onTriggerGoogleLogout}
+                          className="px-3 py-1.5 text-xs font-bold text-rose-300 hover:text-rose-100 bg-rose-950/30 hover:bg-rose-900/40 border border-rose-500/40 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <LogOut className="w-3.5 h-3.5" />
+                          <span>Desconectar</span>
+                        </button>
+                      </>
                     ) : (
                       <button
                         onClick={onTriggerGoogleLogin}

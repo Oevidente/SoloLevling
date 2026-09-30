@@ -122,9 +122,7 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = subscribeToAuth((user, token) => {
       setCurrentUser(user);
-      if (token) {
-        setAccessToken(token);
-      }
+      setAccessToken(token);
     });
 
     return () => {

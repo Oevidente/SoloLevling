@@ -5,6 +5,8 @@ import {
   signInWithPopup,
   signOut,
   onAuthStateChanged,
+  setPersistence,
+  browserLocalPersistence,
   User,
 } from 'firebase/auth';
 
@@ -18,6 +20,8 @@ export interface FirebaseCustomConfig {
 }
 
 const LOCAL_STORAGE_FIREBASE_KEY = 'sololeveling_custom_firebase_config';
+const LOCAL_STORAGE_GOOGLE_TOKEN_KEY = 'sololeveling_google_oauth_token';
+const LOCAL_STORAGE_GOOGLE_TOKEN_TIME = 'sololeveling_google_oauth_token_time';
 
 export function getStoredFirebaseConfig(): FirebaseCustomConfig | null {
   try {
@@ -41,6 +45,29 @@ export function saveStoredFirebaseConfig(config: FirebaseCustomConfig) {
 
 export function clearStoredFirebaseConfig() {
   localStorage.removeItem(LOCAL_STORAGE_FIREBASE_KEY);
+}
+
+// Persistência local do Access Token do Google Drive
+export function getStoredAccessToken(): string | null {
+  try {
+    return localStorage.getItem(LOCAL_STORAGE_GOOGLE_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredAccessToken(token: string | null): void {
+  try {
+    if (token) {
+      localStorage.setItem(LOCAL_STORAGE_GOOGLE_TOKEN_KEY, token);
+      localStorage.setItem(LOCAL_STORAGE_GOOGLE_TOKEN_TIME, String(Date.now()));
+    } else {
+      localStorage.removeItem(LOCAL_STORAGE_GOOGLE_TOKEN_KEY);
+      localStorage.removeItem(LOCAL_STORAGE_GOOGLE_TOKEN_TIME);
+    }
+  } catch (err) {
+    console.warn('Erro ao salvar token de acesso no localStorage:', err);
+  }
 }
 
 // Resolução de credenciais: LocalStorage -> Vite env vars
@@ -83,6 +110,11 @@ try {
   }
 
   authInstance = getAuth(appInstance);
+  // Garante persistência em LocalStorage / IndexedDB para todas as abas e sessões
+  setPersistence(authInstance, browserLocalPersistence).catch((err) => {
+    console.warn('Aviso ao configurar persistência do Firebase Auth:', err);
+  });
+
   googleProviderInstance = new GoogleAuthProvider();
   // Escopo de acesso ao Google Drive apenas para arquivos criados pelo app
   googleProviderInstance.addScope('https://www.googleapis.com/auth/drive.file');
@@ -99,20 +131,23 @@ export const auth = authInstance;
 export const googleProvider = googleProviderInstance;
 export const currentFirebaseConfig = activeConfig;
 
-// Cache do token em memória (NUNCA persistir em localStorage)
-let cachedAccessToken: string | null = null;
-let isSigningIn = false;
+// Token em memória sincronizado com LocalStorage
+let cachedAccessToken: string | null = getStoredAccessToken();
 
 export function getCachedAccessToken(): string | null {
+  if (!cachedAccessToken) {
+    cachedAccessToken = getStoredAccessToken();
+  }
   return cachedAccessToken;
 }
 
 export function setCachedAccessToken(token: string | null) {
   cachedAccessToken = token;
+  setStoredAccessToken(token);
 }
 
 /**
- * Listener de autenticação com limpeza do token em memória
+ * Listener de autenticação com restauração e persistência de sessão
  */
 export function subscribeToAuth(
   callback: (user: User | null, accessToken: string | null) => void
@@ -125,34 +160,36 @@ export function subscribeToAuth(
   return onAuthStateChanged(auth, (user) => {
     if (!user) {
       cachedAccessToken = null;
+      setStoredAccessToken(null);
       callback(null, null);
     } else {
-      callback(user, cachedAccessToken);
+      const stored = getStoredAccessToken();
+      cachedAccessToken = stored;
+      callback(user, stored);
     }
   });
 }
 
 /**
- * Login com Google solicitando o escopo do Google Drive
+ * Login com Google solicitando o escopo do Google Drive com persistência
  */
 export async function loginWithGoogle(): Promise<{ user: User; accessToken: string }> {
   if (!auth || !googleProvider) {
     throw new Error('Serviço de autenticação não inicializado. Verifique as credenciais da API do Google.');
   }
 
-  isSigningIn = true;
   try {
     const result = await signInWithPopup(auth, googleProvider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     const token = credential?.accessToken;
 
     if (!token) {
-      console.warn('Nenhum access token retornado no credential. Tentando obter token de id.');
-      // O token ainda pode ser obtido via getIdToken, mas para a Drive API precisamos do accessToken
+      console.warn('Nenhum access token retornado no credential.');
       throw new Error('Falha ao obter o token de acesso do Google Drive. Verifique se autorizou o acesso.');
     }
 
     cachedAccessToken = token;
+    setStoredAccessToken(token);
     return {
       user: result.user,
       accessToken: token,
@@ -160,16 +197,15 @@ export async function loginWithGoogle(): Promise<{ user: User; accessToken: stri
   } catch (error: any) {
     console.error('Erro no login Google:', error);
     throw error;
-  } finally {
-    isSigningIn = false;
   }
 }
 
 /**
- * Logout do usuário e expurgo do token da memória
+ * Logout do usuário e expurgo do token local e da memória
  */
 export async function logoutUser(): Promise<void> {
   cachedAccessToken = null;
+  setStoredAccessToken(null);
   if (auth) {
     await signOut(auth);
   }

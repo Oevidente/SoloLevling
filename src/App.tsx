@@ -15,6 +15,7 @@ import { OfflineIndicator } from './components/OfflineIndicator';
 import { INITIAL_DEFAULT_QUESTS } from './data/defaultQuests';
 import { PlayerProfile, Quest, PillarType, HunterRank, InventoryItem, ExpRewardEvent } from './types/hunter';
 import { soundEffects } from './services/soundEffects';
+import { normalizeQuestExp } from './utils/questUtils';
 import { 
   subscribeToAuth, 
   loginWithGoogle, 
@@ -68,10 +69,17 @@ export default function App() {
   const [quests, setQuests] = useState<Quest[]>(() => {
     try {
       const saved = localStorage.getItem('solo_hunter_quests');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed: Quest[] = JSON.parse(saved);
+        return parsed.map((q) => ({
+          ...q,
+          xpReward: normalizeQuestExp(q.xpReward),
+        }));
+      }
     } catch {}
     return INITIAL_DEFAULT_QUESTS.map((q, idx) => ({
       ...q,
+      xpReward: normalizeQuestExp(q.xpReward),
       id: `quest_default_${idx}_${Date.now()}`,
       userId: 'local_hunter',
     }));
@@ -370,7 +378,11 @@ export default function App() {
 
   // Atualizar Missão Existente
   const handleUpdateQuest = (updatedQuest: Quest) => {
-    const updatedQuests = quests.map((q) => (q.id === updatedQuest.id ? updatedQuest : q));
+    const sanitized: Quest = {
+      ...updatedQuest,
+      xpReward: normalizeQuestExp(updatedQuest.xpReward),
+    };
+    const updatedQuests = quests.map((q) => (q.id === sanitized.id ? sanitized : q));
     setQuests(updatedQuests);
   };
 
@@ -378,6 +390,7 @@ export default function App() {
   const handleAddQuest = (newQuestData: Omit<Quest, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => {
     const newQuest: Quest = {
       ...newQuestData,
+      xpReward: normalizeQuestExp(newQuestData.xpReward),
       id: `quest_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       userId: currentUser?.uid || 'local_hunter',
       createdAt: new Date().toISOString(),
@@ -396,11 +409,15 @@ export default function App() {
 
   // Importar Dados (Restaurar do Drive ou JSON)
   const handleImportData = (importedPlayer: PlayerProfile, importedQuests: Quest[]) => {
+    const normalizedQuests = importedQuests.map((q) => ({
+      ...q,
+      xpReward: normalizeQuestExp(q.xpReward),
+    }));
     setPlayer(importedPlayer);
-    setQuests(importedQuests);
+    setQuests(normalizedQuests);
     try {
       localStorage.setItem('solo_hunter_profile', JSON.stringify(importedPlayer));
-      localStorage.setItem('solo_hunter_quests', JSON.stringify(importedQuests));
+      localStorage.setItem('solo_hunter_quests', JSON.stringify(normalizedQuests));
     } catch {}
   };
 

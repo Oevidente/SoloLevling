@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { PillarType, Quest } from '../types/hunter';
 import { soundEffects } from '../services/soundEffects';
+import { normalizeQuestExp, QUEST_EXP_PRESETS } from '../utils/questUtils';
 import { Plus, X, Shield, Zap, Sparkles, Pencil, Trash2, Check, AlertTriangle } from 'lucide-react';
 
 interface NewQuestModalProps {
@@ -26,7 +27,7 @@ export const NewQuestModal: React.FC<NewQuestModalProps> = ({
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<PillarType>(initialCategory);
   const [estimatedMinutes, setEstimatedMinutes] = useState(15);
-  const [xpReward, setXpReward] = useState(500);
+  const [xpReward, setXpReward] = useState<number | string>(50);
   const [microStepTip, setMicroStepTip] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -40,14 +41,14 @@ export const NewQuestModal: React.FC<NewQuestModalProps> = ({
         setDescription(questToEdit.description || '');
         setCategory(questToEdit.category || 'fisico');
         setEstimatedMinutes(questToEdit.estimatedMinutes || 15);
-        setXpReward(questToEdit.xpReward || 500);
+        setXpReward(normalizeQuestExp(questToEdit.xpReward));
         setMicroStepTip(questToEdit.microStepTip || '');
       } else {
         setTitle('');
         setDescription('');
         setCategory(initialCategory);
         setEstimatedMinutes(15);
-        setXpReward(500);
+        setXpReward(50);
         setMicroStepTip('');
       }
     }
@@ -55,11 +56,16 @@ export const NewQuestModal: React.FC<NewQuestModalProps> = ({
 
   if (!isOpen) return null;
 
+  const currentXpNum = Number(xpReward);
+  const normalizedXp = normalizeQuestExp(xpReward);
+  const isOffScale = !isNaN(currentXpNum) && xpReward !== '' && currentXpNum !== normalizedXp;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
 
     soundEffects.playSystemBeep();
+    const finalXp = normalizeQuestExp(xpReward);
 
     if (isEditing && questToEdit && onUpdateQuest) {
       onUpdateQuest({
@@ -69,7 +75,7 @@ export const NewQuestModal: React.FC<NewQuestModalProps> = ({
         category,
         statReward: category,
         estimatedMinutes: Number(estimatedMinutes) || 10,
-        xpReward: Number(xpReward) || 300,
+        xpReward: finalXp,
         microStepTip: microStepTip.trim() || 'Quebre em um micro-passo de 2 minutos para iniciar sem resistência.',
         updatedAt: new Date().toISOString(),
       });
@@ -79,7 +85,7 @@ export const NewQuestModal: React.FC<NewQuestModalProps> = ({
         description: description.trim(),
         category,
         estimatedMinutes: Number(estimatedMinutes) || 10,
-        xpReward: Number(xpReward) || 300,
+        xpReward: finalXp,
         statReward: category,
         isCompleted: false,
         microStepTip: microStepTip.trim() || 'Quebre em um micro-passo de 2 minutos para iniciar sem resistência.',
@@ -96,6 +102,10 @@ export const NewQuestModal: React.FC<NewQuestModalProps> = ({
       onDeleteQuest(questToEdit.id);
       onClose();
     }
+  };
+
+  const handleXpBlur = () => {
+    setXpReward(normalizedXp);
   };
 
   return (
@@ -122,7 +132,7 @@ export const NewQuestModal: React.FC<NewQuestModalProps> = ({
         </h3>
         <p className="text-xs text-slate-400 mb-5">
           {isEditing
-            ? 'Ajuste os parâmetros, recompensa de XP ou o pilar correspondente.'
+            ? 'Ajuste os parâmetros, recompensa de XP (10 a 500 XP) ou o pilar correspondente.'
             : 'Cadastre uma meta diária conectada a um dos 3 pilares vitais.'}
         </p>
 
@@ -246,7 +256,7 @@ export const NewQuestModal: React.FC<NewQuestModalProps> = ({
           </div>
 
           {/* Duração & XP */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
                 Tempo (minutos)
@@ -262,19 +272,80 @@ export const NewQuestModal: React.FC<NewQuestModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
-                Recompensa XP
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                  Recompensa XP
+                </label>
+                <span className="text-[11px] font-mono text-emerald-400 font-bold">
+                  {normalizedXp} XP
+                </span>
+              </div>
               <input
                 type="number"
-                min="50"
-                max="1000"
-                step="50"
+                min="10"
+                max="500"
+                step="5"
                 value={xpReward}
-                onChange={(e) => setXpReward(Number(e.target.value))}
+                onChange={(e) => setXpReward(e.target.value)}
+                onBlur={handleXpBlur}
                 className="w-full bg-slate-950/90 border border-slate-700 focus:border-emerald-400 text-slate-100 text-sm px-3.5 py-2.5 rounded-lg outline-none font-mono"
+                placeholder="10 a 500 (passo 5)"
               />
             </div>
+          </div>
+
+          {/* Escala & Arredondamento de XP Info & Sliders/Presets */}
+          <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800 space-y-2.5">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-400">Escala de 10 a 500 XP (de 5 em 5):</span>
+              <span className="font-mono text-emerald-300 font-bold">{normalizedXp} XP</span>
+            </div>
+
+            {/* Slider interativo */}
+            <input
+              type="range"
+              min="10"
+              max="500"
+              step="5"
+              value={normalizedXp}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setXpReward(val);
+              }}
+              className="w-full accent-emerald-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg appearance-none"
+            />
+
+            {/* Presets Rápidos */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <span className="text-[10px] uppercase font-mono text-slate-500 mr-1">Atalhos:</span>
+              {QUEST_EXP_PRESETS.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => {
+                    soundEffects.playSystemBeep();
+                    setXpReward(preset);
+                  }}
+                  className={`px-2 py-0.5 text-[11px] font-mono rounded border transition-colors cursor-pointer ${
+                    normalizedXp === preset
+                      ? 'bg-emerald-500/25 border-emerald-400 text-emerald-300 font-bold shadow-[0_0_8px_rgba(34,197,94,0.3)]'
+                      : 'bg-slate-900 border-slate-700/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  +{preset}
+                </button>
+              ))}
+            </div>
+
+            {/* Aviso de Arredondamento Automático se digitado valor fora da escala */}
+            {isOffScale && (
+              <div className="text-[11px] text-amber-300 bg-amber-950/30 border border-amber-500/30 px-2.5 py-1.5 rounded flex items-center gap-1.5 animate-in fade-in">
+                <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />
+                <span>
+                  Valor <strong className="text-white">"{xpReward}"</strong> arredondado para o ponto mais próximo da escala: <strong className="text-emerald-300 font-mono">{normalizedXp} XP</strong>.
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Dica Anti-Inércia para TDA */}

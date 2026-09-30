@@ -47,7 +47,7 @@ export const INITIAL_DEFAULT_QUESTS: Omit<Quest, 'id' | 'userId'>[] = [
     title: 'Estudo de Arquitetura & Stack de Engenharia',
     description: 'Manter a espada afiada para novos desafios técnicos e rotinas de excelência.',
     category: 'mental',
-    xpReward: 600,
+    xpReward: 500,
     statReward: 'mental',
     isCompleted: false,
     microStepTip: 'Abra apenas 1 artigo ou trecho de documentação e ligue o cronômetro de 15 minutos.',

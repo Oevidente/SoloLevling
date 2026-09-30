@@ -10,7 +10,15 @@ import {
   User,
 } from 'firebase/auth';
 
-import appletConfig from '../../firebase-applet-config.json';
+// Configuração base do applet (Gen-Lang / Solo Leveling)
+const DEFAULT_FIREBASE_CONFIG: FirebaseCustomConfig = {
+  projectId: 'gen-lang-client-0769530201',
+  appId: '1:149392141150:web:e04e3966a9645cf4473dcf',
+  apiKey: 'AIzaSyBmWukUONh8iHXSZCK5413qmyW2UbrSGTY',
+  authDomain: 'gen-lang-client-0769530201.firebaseapp.com',
+  storageBucket: 'gen-lang-client-0769530201.firebasestorage.app',
+  messagingSenderId: '149392141150',
+};
 
 export interface FirebaseCustomConfig {
   projectId?: string;
@@ -72,19 +80,48 @@ export function setStoredAccessToken(token: string | null): void {
   }
 }
 
-// Resolução de credenciais: LocalStorage -> Vite env vars -> firebase-applet-config.json
+// Resolução de credenciais: LocalStorage -> Vite env vars -> Defaults embutidos
 const userCustom = getStoredFirebaseConfig();
 
-const resolvedProjectId = userCustom?.projectId || import.meta.env.VITE_FIREBASE_PROJECT_ID || appletConfig.projectId || 'gen-lang-client-0769530201';
-const resolvedAuthDomain = userCustom?.authDomain || (userCustom?.projectId ? `${userCustom.projectId}.firebaseapp.com` : (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || appletConfig.authDomain || `${resolvedProjectId}.firebaseapp.com`));
+const resolvedProjectId =
+  userCustom?.projectId ||
+  import.meta.env.VITE_FIREBASE_PROJECT_ID ||
+  DEFAULT_FIREBASE_CONFIG.projectId ||
+  'gen-lang-client-0769530201';
+
+const resolvedAuthDomain =
+  userCustom?.authDomain ||
+  (userCustom?.projectId
+    ? `${userCustom.projectId}.firebaseapp.com`
+    : import.meta.env.VITE_FIREBASE_AUTH_DOMAIN ||
+      DEFAULT_FIREBASE_CONFIG.authDomain ||
+      `${resolvedProjectId}.firebaseapp.com`);
 
 const activeConfig: FirebaseCustomConfig = {
   projectId: resolvedProjectId,
-  appId: userCustom?.appId || import.meta.env.VITE_FIREBASE_APP_ID || appletConfig.appId || '',
-  apiKey: userCustom?.apiKey || import.meta.env.VITE_FIREBASE_API_KEY || appletConfig.apiKey || '',
+  appId:
+    userCustom?.appId ||
+    import.meta.env.VITE_FIREBASE_APP_ID ||
+    DEFAULT_FIREBASE_CONFIG.appId ||
+    '',
+  apiKey:
+    userCustom?.apiKey ||
+    import.meta.env.VITE_FIREBASE_API_KEY ||
+    DEFAULT_FIREBASE_CONFIG.apiKey ||
+    '',
   authDomain: resolvedAuthDomain,
-  storageBucket: userCustom?.storageBucket || (userCustom?.projectId ? `${userCustom.projectId}.firebasestorage.app` : (import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || appletConfig.storageBucket || '')),
-  messagingSenderId: userCustom?.messagingSenderId || import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || appletConfig.messagingSenderId || '',
+  storageBucket:
+    userCustom?.storageBucket ||
+    (userCustom?.projectId
+      ? `${userCustom.projectId}.firebasestorage.app`
+      : import.meta.env.VITE_FIREBASE_STORAGE_BUCKET ||
+        DEFAULT_FIREBASE_CONFIG.storageBucket ||
+        ''),
+  messagingSenderId:
+    userCustom?.messagingSenderId ||
+    import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID ||
+    DEFAULT_FIREBASE_CONFIG.messagingSenderId ||
+    '',
 };
 
 export const isFirebaseConfigured = Boolean(
@@ -218,7 +255,8 @@ export async function loginWithGoogle(): Promise<{ user: User; accessToken: stri
       throw new Error('Credenciais de API do Firebase não configuradas ou inválidas. Você pode configurá-las na aba "Configurações" ou usar o Backup por Arquivo Local (JSON) imediatamente sem custo.');
     }
     if (error?.code === 'auth/unauthorized-domain') {
-      throw new Error('Este domínio não está na lista de domínios autorizados do Firebase Authentication. Adicione o domínio nas configurações do seu projeto.');
+      const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'seu-dominio';
+      throw new Error(`O domínio "${currentHost}" não está na lista de Domínios Autorizados do Firebase Authentication. Para liberar, adicione "${currentHost}" em Firebase Console ➔ Authentication ➔ Settings ➔ Authorized Domains.`);
     }
     
     throw error;

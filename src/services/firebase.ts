@@ -18,6 +18,7 @@ const DEFAULT_FIREBASE_CONFIG: FirebaseCustomConfig = {
   authDomain: 'gen-lang-client-0769530201.firebaseapp.com',
   storageBucket: 'gen-lang-client-0769530201.firebasestorage.app',
   messagingSenderId: '149392141150',
+  clientId: '149392141150-om7tfsqanvdtamd4qc1vebqk0kih6mcd.apps.googleusercontent.com',
 };
 
 export interface FirebaseCustomConfig {
@@ -27,6 +28,7 @@ export interface FirebaseCustomConfig {
   authDomain?: string;
   storageBucket?: string;
   messagingSenderId?: string;
+  clientId?: string;
 }
 
 const LOCAL_STORAGE_FIREBASE_KEY = 'sololeveling_custom_firebase_config';
@@ -122,6 +124,11 @@ const activeConfig: FirebaseCustomConfig = {
     import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID ||
     DEFAULT_FIREBASE_CONFIG.messagingSenderId ||
     '',
+  clientId:
+    userCustom?.clientId ||
+    import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+    DEFAULT_FIREBASE_CONFIG.clientId ||
+    '149392141150-om7tfsqanvdtamd4qc1vebqk0kih6mcd.apps.googleusercontent.com',
 };
 
 export const isFirebaseConfigured = Boolean(
@@ -276,7 +283,8 @@ export function subscribeToAuth(
 export async function loginWithGoogleIdentityServices(customClientId?: string): Promise<{ user: SimpleUserProfile; accessToken: string }> {
   const resolvedClientId =
     customClientId ||
-    userCustom?.appId || // pode ser usado se guardado
+    userCustom?.clientId ||
+    activeConfig.clientId ||
     import.meta.env.VITE_GOOGLE_CLIENT_ID ||
     '149392141150-om7tfsqanvdtamd4qc1vebqk0kih6mcd.apps.googleusercontent.com';
 

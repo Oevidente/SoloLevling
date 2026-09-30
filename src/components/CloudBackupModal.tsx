@@ -102,6 +102,7 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
   const [projectId, setProjectId] = useState(initialConfig.projectId || '');
   const [appId, setAppId] = useState(initialConfig.appId || '');
   const [authDomain, setAuthDomain] = useState(initialConfig.authDomain || '');
+  const [clientId, setClientId] = useState(initialConfig.clientId || '');
   const [configSuccessFeedback, setConfigSuccessFeedback] = useState(false);
 
   // Checa informações do arquivo no Drive ao abrir o modal com login ativo
@@ -278,6 +279,7 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
       apiKey: apiKey.trim(),
       appId: appId.trim(),
       authDomain: authDomain.trim(),
+      clientId: clientId.trim(),
     });
     setConfigSuccessFeedback(true);
     setTimeout(() => {
@@ -793,7 +795,23 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="text-slate-400 text-[11px] block mb-1">App ID (Opcional)</label>
+                  <label className="text-slate-400 text-[11px] block mb-1">
+                    Google OAuth Client ID (ID do Cliente OAuth 2.0 Web)
+                  </label>
+                  <input
+                    type="text"
+                    value={clientId}
+                    onChange={(e) => setClientId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:border-emerald-400 focus:outline-none"
+                    placeholder="ex: 123456789-xxxx.apps.googleusercontent.com"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Copie o "ID do cliente" criado no seu Google Cloud Console em APIs e Serviços ➔ Credenciais.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="text-slate-400 text-[11px] block mb-1">App ID (Firebase Opcional)</label>
                   <input
                     type="text"
                     value={appId}
@@ -803,17 +821,23 @@ export const CloudBackupModal: React.FC<CloudBackupModalProps> = ({
                   />
                 </div>
 
-                {/* Caixa de Ajuda para erro de redirect_uri_mismatch */}
-                <div className="p-3 rounded-lg bg-slate-950/80 border border-cyan-500/30 text-[11px] space-y-1 font-sans text-slate-300">
-                  <div className="font-bold text-cyan-400 flex items-center gap-1.5 font-mono">
-                    <Info className="w-3.5 h-3.5" />
-                    <span>Como resolver "redirect_uri_mismatch":</span>
+                {/* Caixa de Ajuda para erro de origin_mismatch e redirect_uri_mismatch */}
+                <div className="p-3.5 rounded-xl bg-slate-950/80 border border-cyan-500/40 text-[11px] space-y-2 font-sans text-slate-300">
+                  <div className="font-bold text-cyan-300 flex items-center gap-1.5 font-mono">
+                    <Info className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <span>Como resolver "Erro 400: origin_mismatch":</span>
                   </div>
                   <p className="text-slate-400 leading-relaxed">
-                    No seu <strong className="text-slate-200">Google Cloud Console ➔ APIs e Serviços ➔ Credenciais</strong>, abra seu ID de Cliente OAuth 2.0 Web e certifique-se de que o seguinte URI está em <strong className="text-slate-200">URIs de redirecionamento autorizados</strong>:
+                    1. No seu <strong className="text-slate-200">Google Cloud Console ➔ APIs e Serviços ➔ Credenciais</strong>, abra seu <strong className="text-slate-200">ID de Cliente OAuth 2.0 Web</strong>.
+                  </p>
+                  <p className="text-slate-400 leading-relaxed">
+                    2. Copie o <strong className="text-cyan-300">ID do Cliente</strong> (terminado em <code className="text-slate-200 font-mono">.apps.googleusercontent.com</code>) e cole no campo <strong>Google OAuth Client ID</strong> acima.
+                  </p>
+                  <p className="text-slate-400 leading-relaxed">
+                    3. Em <strong className="text-slate-200">Origens JavaScript autorizadas</strong> daquele mesmo cliente, confirme se está adicionado:
                   </p>
                   <code className="block p-1.5 rounded bg-slate-900 border border-slate-700 text-emerald-400 font-mono select-all text-[11px] break-all">
-                    https://{authDomain || `${projectId || 'seu-projeto'}.firebaseapp.com`}/__/auth/handler
+                    https://oevidente.github.io
                   </code>
                 </div>
 
